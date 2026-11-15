@@ -6,804 +6,1658 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>437</width>
-    <height>760</height>
+    <width>1495</width>
+    <height>600</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>Reportes por Período — RSA</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <widget class="QGroupBox" name="groupBox">
+   <!-- ========================================================================= -->
+   <!-- ZONA 1: ESCOGIMIENTO DE PERÍODO Y FUENTE DE DATOS (COLUMNA IZQUIERDA)      -->
+   <!-- ========================================================================= -->
+   <widget class="QGroupBox" name="grupo_periodo_fuente">
     <property name="geometry">
      <rect>
-      <x>170</x>
-      <y>120</y>
-      <width>131</width>
-      <height>81</height>
+      <x>15</x>
+      <y>8</y>
+      <width>460</width>
+      <height>292</height>
      </rect>
     </property>
-    <property name="title">
-     <string>MES</string>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+      <weight>75</weight>
+      <bold>true</bold>
+     </font>
     </property>
+    <property name="title">
+     <string>1. ESCOGIMIENTO DE PERÍODO Y FUENTE DE CONSOLIDACIÓN</string>
+    </property>
+    <widget class="QLabel" name="lbl_subtitulo_unidad">
+     <property name="geometry">
+      <rect>
+       <x>12</x>
+       <y>22</y>
+       <width>435</width>
+       <height>18</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>A) Seleccione una opción de período (excluyente):</string>
+     </property>
+    </widget>
+    <!-- Opción 1: Por Año -->
+    <widget class="QRadioButton" name="rb_anio">
+     <property name="geometry">
+      <rect>
+       <x>16</x>
+       <y>45</y>
+       <width>115</width>
+       <height>22</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Año entero:</string>
+     </property>
+     <property name="checked">
+      <bool>true</bool>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="comboBox_anio">
+     <property name="geometry">
+      <rect>
+       <x>140</x>
+       <y>45</y>
+       <width>100</width>
+       <height>22</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+    </widget>
+    <!-- Opción 2: Por Mes -->
+    <widget class="QRadioButton" name="rb_mes">
+     <property name="geometry">
+      <rect>
+       <x>16</x>
+       <y>73</y>
+       <width>115</width>
+       <height>22</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Mes (del Año):</string>
+     </property>
+    </widget>
     <widget class="QComboBox" name="comboBox_mes">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
      <property name="geometry">
       <rect>
-       <x>10</x>
-       <y>20</y>
-       <width>111</width>
-       <height>21</height>
-      </rect>
-     </property>
-    </widget>
-    <widget class="QPushButton" name="btn_mes">
-     <property name="geometry">
-      <rect>
-       <x>30</x>
-       <y>50</y>
-       <width>75</width>
-       <height>23</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Cargar</string>
-     </property>
-    </widget>
-   </widget>
-   <widget class="QPushButton" name="Btn_Salir">
-    <property name="geometry">
-     <rect>
-      <x>340</x>
-      <y>540</y>
-      <width>81</width>
-      <height>31</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Salir</string>
-    </property>
-   </widget>
-   <widget class="QGroupBox" name="groupBox_2">
-    <property name="geometry">
-     <rect>
-      <x>30</x>
-      <y>330</y>
-      <width>391</width>
-      <height>131</height>
-     </rect>
-    </property>
-    <property name="title">
-     <string>PERIODO</string>
-    </property>
-    <widget class="QLabel" name="label_t_5">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
-     <property name="geometry">
-      <rect>
-       <x>150</x>
-       <y>10</y>
-       <width>51</width>
-       <height>31</height>
+       <x>140</x>
+       <y>73</y>
+       <width>130</width>
+       <height>22</height>
       </rect>
      </property>
      <property name="font">
       <font>
-       <pointsize>10</pointsize>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
       </font>
      </property>
-     <property name="text">
-      <string>FIN</string>
-     </property>
-     <property name="alignment">
-      <set>Qt::AlignCenter</set>
-     </property>
-     <property name="wordWrap">
-      <bool>false</bool>
-     </property>
     </widget>
-    <widget class="QLabel" name="label_t_6">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
+    <!-- Opción 3: Por Semana -->
+    <widget class="QRadioButton" name="rb_semana">
      <property name="geometry">
       <rect>
-       <x>40</x>
-       <y>18</y>
-       <width>51</width>
-       <height>19</height>
+       <x>16</x>
+       <y>101</y>
+       <width>120</width>
+       <height>22</height>
       </rect>
      </property>
      <property name="font">
       <font>
-       <pointsize>10</pointsize>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
       </font>
      </property>
      <property name="text">
-      <string>INICIO</string>
-     </property>
-     <property name="scaledContents">
-      <bool>false</bool>
-     </property>
-     <property name="alignment">
-      <set>Qt::AlignCenter</set>
-     </property>
-     <property name="wordWrap">
-      <bool>false</bool>
+      <string>Semana ISO:</string>
      </property>
     </widget>
-    <widget class="QPushButton" name="btn_periodo">
+    <widget class="QComboBox" name="comboBox_semana">
      <property name="geometry">
       <rect>
-       <x>300</x>
-       <y>40</y>
-       <width>81</width>
-       <height>23</height>
+       <x>140</x>
+       <y>101</y>
+       <width>80</width>
+       <height>22</height>
       </rect>
      </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+    </widget>
+    <!-- Opción 4: Por Rango de Fechas -->
+    <widget class="QRadioButton" name="rb_periodo">
+     <property name="geometry">
+      <rect>
+       <x>16</x>
+       <y>129</y>
+       <width>120</width>
+       <height>22</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
      <property name="text">
-      <string>Cargar</string>
+      <string>Rango Fechas:</string>
      </property>
     </widget>
     <widget class="QDateEdit" name="dateEdit_ini">
      <property name="geometry">
       <rect>
-       <x>10</x>
-       <y>40</y>
-       <width>101</width>
+       <x>140</x>
+       <y>129</y>
+       <width>110</width>
        <height>22</height>
       </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="calendarPopup">
+      <bool>true</bool>
+     </property>
+    </widget>
+    <widget class="QLabel" name="lbl_a_fechas">
+     <property name="geometry">
+      <rect>
+       <x>255</x>
+       <y>129</y>
+       <width>20</width>
+       <height>22</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>al</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
      </property>
     </widget>
     <widget class="QDateEdit" name="dateEdit_fin">
      <property name="geometry">
       <rect>
-       <x>130</x>
-       <y>40</y>
-       <width>101</width>
+       <x>280</x>
+       <y>129</y>
+       <width>110</width>
        <height>22</height>
       </rect>
      </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="calendarPopup">
+      <bool>true</bool>
+     </property>
     </widget>
-    <widget class="QPushButton" name="btn_estaciones">
+
+    <!-- Sub-bloque 1B: Fuente de Consolidación -->
+    <widget class="QFrame" name="frame_fuente_datos">
      <property name="geometry">
       <rect>
-       <x>300</x>
-       <y>80</y>
-       <width>81</width>
-       <height>31</height>
+       <x>12</x>
+       <y>160</y>
+       <width>436</width>
+       <height>78</height>
       </rect>
      </property>
+     <property name="frameShape">
+      <enum>QFrame::StyledPanel</enum>
+     </property>
+     <widget class="QLabel" name="lbl_subtitulo_fuente">
+      <property name="geometry">
+       <rect>
+        <x>8</x>
+        <y>4</y>
+        <width>420</width>
+        <height>18</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>75</weight>
+        <bold>true</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>B) ¿Cómo desea consolidar el período seleccionado?</string>
+      </property>
+     </widget>
+     <widget class="QRadioButton" name="rb_fuente_catalogo">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>25</y>
+        <width>415</width>
+        <height>22</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>9</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>En base a reportes existentes (_cat.csv del período o unidades básicas)</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+     </widget>
+     <widget class="QRadioButton" name="rb_fuente_diaria">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>49</y>
+        <width>415</width>
+        <height>22</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>9</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>Regenera y guarda automáticamente la información de cada día (_cat.csv, _rep.csv, _res.csv, _resp.csv, .xml) sin emitir PDFs diarios, y sincroniza las unidades de período en cascada.</string>
+      </property>
+      <property name="text">
+       <string>Actualizar día por día (regenera archivos diarios y períodos sin PDF)</string>
+      </property>
+      <property name="checked">
+       <bool>false</bool>
+      </property>
+     </widget>
+    </widget>
+
+    <!-- Botones de Acción de Carga -->
+    <widget class="QPushButton" name="btn_cargar_periodo">
+     <property name="geometry">
+      <rect>
+       <x>12</x>
+       <y>247</y>
+       <width>215</width>
+       <height>34</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
      <property name="text">
-      <string>Cargar</string>
+      <string>Cargar Período Seleccionado</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="Btn_cargar_catalogo">
+     <property name="geometry">
+      <rect>
+       <x>235</x>
+       <y>247</y>
+       <width>213</width>
+       <height>34</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Abrir carpeta 'Ecuador' generada...</string>
+     </property>
+    </widget>
+
+    <!-- Controles heredados ocultos para retrocompatibilidad estricta de contratos -->
+    <widget class="QPushButton" name="btn_anio">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+    <widget class="QPushButton" name="btn_mes">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+    <widget class="QPushButton" name="btn_semana">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+    <widget class="QPushButton" name="btn_periodo">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+    <widget class="QPushButton" name="btn_periodo_cat">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+    <widget class="QDateEdit" name="dateEdit_ini_cat">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+    <widget class="QDateEdit" name="dateEdit_fin_cat">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+    <widget class="QCheckBox" name="ck_box_historico">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+   </widget>
+
+   <!-- ========================================================================= -->
+   <!-- ZONA 3: REPORTES ESPECIALES POR ESTACIÓN (COLUMNA IZQUIERDA MEDIA)         -->
+   <!-- ========================================================================= -->
+   <widget class="QGroupBox" name="grupo_reportes_estacion">
+    <property name="geometry">
+     <rect>
+      <x>15</x>
+      <y>306</y>
+      <width>460</width>
+      <height>132</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+      <weight>75</weight>
+      <bold>true</bold>
+     </font>
+    </property>
+    <property name="title">
+     <string>3. REPORTES ESPECIALES POR ESTACIÓN (CSV / MSEED)</string>
+    </property>
+    <widget class="QLabel" name="lbl_est_tipo">
+     <property name="geometry">
+      <rect>
+       <x>12</x>
+       <y>22</y>
+       <width>110</width>
+       <height>18</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Tipo de Evento:</string>
+     </property>
+    </widget>
+    <widget class="QLabel" name="lbl_est_nombre">
+     <property name="geometry">
+      <rect>
+       <x>130</x>
+       <y>22</y>
+       <width>150</width>
+       <height>18</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Estación Habilitada:</string>
      </property>
     </widget>
     <widget class="QComboBox" name="Cmb_bx_tipo_evento">
      <property name="geometry">
       <rect>
-       <x>10</x>
-       <y>80</y>
-       <width>101</width>
-       <height>31</height>
+       <x>12</x>
+       <y>42</y>
+       <width>110</width>
+       <height>26</height>
       </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
      </property>
     </widget>
     <widget class="QComboBox" name="Cmb_bx_estacion">
      <property name="geometry">
       <rect>
        <x>130</x>
-       <y>80</y>
-       <width>141</width>
-       <height>31</height>
-      </rect>
-     </property>
-    </widget>
-   </widget>
-   <widget class="QPushButton" name="Btn_guardar">
-    <property name="enabled">
-     <bool>false</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>30</x>
-      <y>540</y>
-      <width>81</width>
-      <height>31</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Guardar</string>
-    </property>
-   </widget>
-   <widget class="QComboBox" name="cmbx_zona">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>30</x>
-      <y>490</y>
-      <width>91</width>
-      <height>31</height>
-     </rect>
-    </property>
-   </widget>
-   <widget class="QComboBox" name="cmbx_mapa">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>130</x>
-      <y>490</y>
-      <width>71</width>
-      <height>31</height>
-     </rect>
-    </property>
-   </widget>
-   <widget class="QGroupBox" name="groupBox_6">
-    <property name="geometry">
-     <rect>
-      <x>30</x>
-      <y>120</y>
-      <width>131</width>
-      <height>81</height>
-     </rect>
-    </property>
-    <property name="title">
-     <string>AÑO</string>
-    </property>
-    <widget class="QPushButton" name="btn_anio">
-     <property name="geometry">
-      <rect>
-       <x>30</x>
-       <y>50</y>
-       <width>75</width>
-       <height>23</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Cargar</string>
-     </property>
-    </widget>
-    <widget class="QComboBox" name="comboBox_anio">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>20</y>
-       <width>111</width>
-       <height>21</height>
-      </rect>
-     </property>
-    </widget>
-   </widget>
-   <widget class="QGroupBox" name="groupBox_4">
-    <property name="geometry">
-     <rect>
-      <x>310</x>
-      <y>120</y>
-      <width>111</width>
-      <height>81</height>
-     </rect>
-    </property>
-    <property name="title">
-     <string>SEMANA</string>
-    </property>
-    <widget class="QComboBox" name="comboBox_semana">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>20</y>
-       <width>91</width>
-       <height>21</height>
-      </rect>
-     </property>
-    </widget>
-    <widget class="QPushButton" name="btn_semana">
-     <property name="geometry">
-      <rect>
-       <x>20</x>
-       <y>50</y>
-       <width>75</width>
-       <height>23</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Cargar</string>
-     </property>
-    </widget>
-   </widget>
-   <widget class="QLabel" name="label_t_9">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>50</x>
-      <y>470</y>
-      <width>51</width>
-      <height>19</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <pointsize>10</pointsize>
-     </font>
-    </property>
-    <property name="text">
-     <string>REGION</string>
-    </property>
-    <property name="scaledContents">
-     <bool>false</bool>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-    <property name="wordWrap">
-     <bool>false</bool>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_t_10">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>140</x>
-      <y>470</y>
-      <width>51</width>
-      <height>19</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <pointsize>10</pointsize>
-     </font>
-    </property>
-    <property name="text">
-     <string>MAPA</string>
-    </property>
-    <property name="scaledContents">
-     <bool>false</bool>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-    <property name="wordWrap">
-     <bool>false</bool>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_t_11">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>204</x>
-      <y>470</y>
-      <width>71</width>
-      <height>19</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <pointsize>10</pointsize>
-     </font>
-    </property>
-    <property name="text">
-     <string>MAGNITUD</string>
-    </property>
-    <property name="scaledContents">
-     <bool>false</bool>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-    <property name="wordWrap">
-     <bool>false</bool>
-    </property>
-   </widget>
-   <widget class="QComboBox" name="cmbx_magnitud">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>220</x>
-      <y>490</y>
-      <width>51</width>
-      <height>31</height>
-     </rect>
-    </property>
-   </widget>
-   <widget class="QComboBox" name="cmbx_n_estaciones">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>380</x>
-      <y>490</y>
-      <width>41</width>
-      <height>31</height>
-     </rect>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_t_12">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>369</x>
-      <y>470</y>
-      <width>51</width>
-      <height>20</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <pointsize>10</pointsize>
-     </font>
-    </property>
-    <property name="text">
-     <string>N° EST.</string>
-    </property>
-    <property name="scaledContents">
-     <bool>false</bool>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-    <property name="wordWrap">
-     <bool>false</bool>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_t_13">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>360</x>
-      <y>495</y>
-      <width>31</width>
-      <height>19</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <pointsize>12</pointsize>
-     </font>
-    </property>
-    <property name="text">
-     <string>&gt;</string>
-    </property>
-    <property name="scaledContents">
-     <bool>false</bool>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-    <property name="wordWrap">
-     <bool>false</bool>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_t_14">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>200</x>
-      <y>495</y>
-      <width>30</width>
-      <height>20</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <pointsize>12</pointsize>
-     </font>
-    </property>
-    <property name="text">
-     <string>&gt;</string>
-    </property>
-    <property name="scaledContents">
-     <bool>false</bool>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-    <property name="wordWrap">
-     <bool>false</bool>
-    </property>
-   </widget>
-   <widget class="QCheckBox" name="ck_box_reporte">
-    <property name="geometry">
-     <rect>
-      <x>120</x>
-      <y>540</y>
-      <width>70</width>
-      <height>17</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Reporte</string>
-    </property>
-    <property name="checked">
-     <bool>true</bool>
-    </property>
-   </widget>
-   <widget class="QCheckBox" name="ck_box_firma">
-    <property name="geometry">
-     <rect>
-      <x>191</x>
-      <y>540</y>
-      <width>70</width>
-      <height>17</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Firma</string>
-    </property>
-    <property name="checked">
-     <bool>true</bool>
-    </property>
-   </widget>
-   <widget class="QCheckBox" name="ck_box_filtro">
-    <property name="geometry">
-     <rect>
-      <x>260</x>
-      <y>540</y>
-      <width>70</width>
-      <height>17</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Filtro</string>
-    </property>
-    <property name="checked">
-     <bool>true</bool>
-    </property>
-   </widget>
-   <widget class="QGroupBox" name="groupBox_7">
-    <property name="geometry">
-     <rect>
-      <x>30</x>
-      <y>210</y>
-      <width>391</width>
-      <height>121</height>
-     </rect>
-    </property>
-    <property name="title">
-     <string>CATALOGO</string>
-    </property>
-    <widget class="QLabel" name="label_t_17">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
-     <property name="geometry">
-      <rect>
-       <x>150</x>
-       <y>10</y>
-       <width>51</width>
-       <height>31</height>
+       <y>42</y>
+       <width>155</width>
+       <height>26</height>
       </rect>
      </property>
      <property name="font">
       <font>
-       <pointsize>10</pointsize>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
       </font>
      </property>
-     <property name="text">
-      <string>FIN</string>
-     </property>
-     <property name="alignment">
-      <set>Qt::AlignCenter</set>
-     </property>
-     <property name="wordWrap">
-      <bool>false</bool>
-     </property>
     </widget>
-    <widget class="QLabel" name="label_t_18">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
+    <widget class="QPushButton" name="btn_estaciones">
      <property name="geometry">
       <rect>
-       <x>40</x>
-       <y>18</y>
-       <width>51</width>
-       <height>19</height>
+       <x>295</x>
+       <y>40</y>
+       <width>153</width>
+       <height>30</height>
       </rect>
      </property>
      <property name="font">
       <font>
-       <pointsize>10</pointsize>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
       </font>
      </property>
      <property name="text">
-      <string>INICIO</string>
-     </property>
-     <property name="scaledContents">
-      <bool>false</bool>
-     </property>
-     <property name="alignment">
-      <set>Qt::AlignCenter</set>
-     </property>
-     <property name="wordWrap">
-      <bool>false</bool>
-     </property>
-    </widget>
-    <widget class="QPushButton" name="btn_periodo_cat">
-     <property name="geometry">
-      <rect>
-       <x>290</x>
-       <y>10</y>
-       <width>81</width>
-       <height>23</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Cargar</string>
-     </property>
-    </widget>
-    <widget class="QDateEdit" name="dateEdit_ini_cat">
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>40</y>
-       <width>101</width>
-       <height>22</height>
-      </rect>
-     </property>
-     <property name="displayFormat">
-      <string>M/yyyy</string>
-     </property>
-    </widget>
-    <widget class="QDateEdit" name="dateEdit_fin_cat">
-     <property name="geometry">
-      <rect>
-       <x>130</x>
-       <y>40</y>
-       <width>101</width>
-       <height>22</height>
-      </rect>
-     </property>
-     <property name="displayFormat">
-      <string>M/yyyy</string>
-     </property>
-    </widget>
-    <widget class="QCheckBox" name="ck_box_relleno">
-     <property name="geometry">
-      <rect>
-       <x>290</x>
-       <y>40</y>
-       <width>70</width>
-       <height>17</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Relleno</string>
-     </property>
-     <property name="checked">
-      <bool>true</bool>
-     </property>
-    </widget>
-    <widget class="QPushButton" name="Btn_cargar_catalogo">
-     <property name="geometry">
-      <rect>
-       <x>10</x>
-       <y>80</y>
-       <width>151</width>
-       <height>23</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Cargar catálogo generado</string>
-     </property>
-    </widget>
-    <widget class="QCheckBox" name="ck_box_historico">
-     <property name="enabled">
-      <bool>true</bool>
-     </property>
-     <property name="geometry">
-      <rect>
-       <x>290</x>
-       <y>60</y>
-       <width>70</width>
-       <height>17</height>
-      </rect>
-     </property>
-     <property name="text">
-      <string>Historico</string>
-     </property>
-     <property name="checked">
-      <bool>false</bool>
+      <string>Exportar Amplitudes CSV</string>
      </property>
     </widget>
     <widget class="QPushButton" name="btn_selector_estaciones">
      <property name="geometry">
       <rect>
-       <x>170</x>
-       <y>80</y>
-       <width>101</width>
-       <height>23</height>
+       <x>12</x>
+       <y>84</y>
+       <width>436</width>
+       <height>32</height>
       </rect>
      </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
      <property name="text">
-      <string>Estaciones</string>
+      <string>Selector Múltiple de Estaciones (Consultar archivos .mseed en el catálogo)</string>
      </property>
     </widget>
    </widget>
-   <widget class="QComboBox" name="cmbx_profundidad">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
+
+   <!-- ========================================================================= -->
+   <!-- BITÁCORA / ESTADO EN MEMORIA (COLUMNA IZQUIERDA INFERIOR)                  -->
+   <!-- ========================================================================= -->
+   <widget class="QGroupBox" name="grupo_bitacora">
     <property name="geometry">
      <rect>
-      <x>280</x>
-      <y>490</y>
-      <width>81</width>
-      <height>31</height>
-     </rect>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_t_15">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>280</x>
-      <y>470</y>
-      <width>81</width>
-      <height>20</height>
+      <x>15</x>
+      <y>444</y>
+      <width>460</width>
+      <height>130</height>
      </rect>
     </property>
     <property name="font">
      <font>
-      <pointsize>10</pointsize>
+      <pointsize>9</pointsize>
+      <weight>75</weight>
+      <bold>true</bold>
      </font>
     </property>
-    <property name="text">
-     <string>PROFUNDIDAD</string>
+    <property name="title">
+     <string>ESTADO DEL CATÁLOGO EN MEMORIA Y SALIDAS</string>
     </property>
-    <property name="scaledContents">
-     <bool>false</bool>
-    </property>
-    <property name="alignment">
-     <set>Qt::AlignCenter</set>
-    </property>
-    <property name="wordWrap">
-     <bool>false</bool>
-    </property>
+    <widget class="QTextEdit" name="textEdit">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>20</y>
+       <width>440</width>
+       <height>100</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Consolas</family>
+       <pointsize>8</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="readOnly">
+      <bool>true</bool>
+     </property>
+    </widget>
    </widget>
-   <widget class="QTextEdit" name="textEdit">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
+
+   <!-- ========================================================================= -->
+   <!-- ZONA 2: REGIÓN, MAPA Y FILTROS SISMOLÓGICOS (COLUMNA DERECHA SUPERIOR)     -->
+   <!-- ========================================================================= -->
+   <widget class="QGroupBox" name="grupo_filtros_sismologicos">
     <property name="geometry">
      <rect>
-      <x>30</x>
-      <y>10</y>
-      <width>391</width>
-      <height>111</height>
+      <x>488</x>
+      <y>8</y>
+      <width>462</width>
+      <height>395</height>
      </rect>
     </property>
-    <property name="lineWrapMode">
-     <enum>QTextEdit::WidgetWidth</enum>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+      <weight>75</weight>
+      <bold>true</bold>
+     </font>
     </property>
+    <property name="title">
+     <string>2. REGIÓN CARTOGRÁFICA, CAPA DE MAPA Y FILTROS SISMOLÓGICOS</string>
+    </property>
+    <!-- Selección de Región y Capa de Mapa .emf -->
+    <widget class="QLabel" name="label_t_9">
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>24</y>
+       <width>180</width>
+       <height>18</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>REGIÓN (Define Polígono y Modo PDF):</string>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="cmbx_zona">
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>44</y>
+       <width>200</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+    </widget>
+    <widget class="QLabel" name="label_t_10">
+     <property name="geometry">
+      <rect>
+       <x>230</x>
+       <y>24</y>
+       <width>215</width>
+       <height>18</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>MAPA (Capa temática .emf):</string>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="cmbx_mapa">
+     <property name="geometry">
+      <rect>
+       <x>230</x>
+       <y>44</y>
+       <width>218</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+    </widget>
+
+    <!-- Casilla Maestra de Filtrado y Filtro de Red -->
+    <widget class="QCheckBox" name="ck_box_filtro">
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>76</y>
+       <width>235</width>
+       <height>24</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Aplicar Filtros Sismológicos</string>
+     </property>
+     <property name="checked">
+      <bool>true</bool>
+     </property>
+    </widget>
+    <widget class="QLabel" name="lbl_filtro_red">
+     <property name="geometry">
+      <rect>
+       <x>255</x>
+       <y>76</y>
+       <width>32</width>
+       <height>24</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Red:</string>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="cmbx_filtro_red">
+     <property name="geometry">
+      <rect>
+       <x>290</x>
+       <y>75</y>
+       <width>158</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="toolTip">
+      <string>Filtro por origen de red: Solo Red Sísmica RSA (habitual), Todas las redes o Solo Otras redes (IGEPN/USGS).</string>
+     </property>
+     <item>
+      <property name="text">
+       <string>Solo Red Sísmica (RSA)</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Todas las redes</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Solo Otras redes</string>
+      </property>
+     </item>
+    </widget>
+
+    <!-- Sub-bloque A: Filtro de Profundidad -->
+    <widget class="QGroupBox" name="grupo_filtro_prof">
+     <property name="geometry">
+      <rect>
+       <x>12</x>
+       <y>104</y>
+       <width>438</width>
+       <height>115</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="title">
+      <string>Filtro de Profundidad Focal (km)</string>
+     </property>
+     <widget class="QRadioButton" name="rb_prof_estratos">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>22</y>
+        <width>185</width>
+        <height>20</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>75</weight>
+        <bold>true</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Por estratos estándar RSA:</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+     </widget>
+     <widget class="QCheckBox" name="ck_prof_sup">
+      <property name="geometry">
+       <rect>
+        <x>24</x>
+        <y>45</y>
+        <width>135</width>
+        <height>20</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Superficial (&lt;40 km)</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+     </widget>
+     <widget class="QCheckBox" name="ck_prof_med">
+      <property name="geometry">
+       <rect>
+        <x>165</x>
+        <y>45</y>
+        <width>135</width>
+        <height>20</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Medio (40–70 km)</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+     </widget>
+     <widget class="QCheckBox" name="ck_prof_pro">
+      <property name="geometry">
+       <rect>
+        <x>305</x>
+        <y>45</y>
+        <width>125</width>
+        <height>20</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Profundo (&gt;70 km)</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+     </widget>
+     <widget class="QRadioButton" name="rb_prof_rango">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>78</y>
+        <width>165</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>75</weight>
+        <bold>true</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Por rango numérico (km):</string>
+      </property>
+     </widget>
+     <widget class="QDoubleSpinBox" name="spin_prof_min">
+      <property name="geometry">
+       <rect>
+        <x>180</x>
+        <y>78</y>
+        <width>95</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="suffix">
+       <string> km</string>
+      </property>
+      <property name="decimals">
+       <number>1</number>
+      </property>
+      <property name="maximum">
+       <double>1000.000000000000000</double>
+      </property>
+      <property name="singleStep">
+       <double>5.000000000000000</double>
+      </property>
+      <property name="value">
+       <double>0.000000000000000</double>
+      </property>
+     </widget>
+     <widget class="QLabel" name="lbl_prof_a">
+      <property name="geometry">
+       <rect>
+        <x>280</x>
+        <y>78</y>
+        <width>25</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>a</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QDoubleSpinBox" name="spin_prof_max">
+      <property name="geometry">
+       <rect>
+        <x>310</x>
+        <y>78</y>
+        <width>105</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="suffix">
+       <string> km</string>
+      </property>
+      <property name="decimals">
+       <number>1</number>
+      </property>
+      <property name="maximum">
+       <double>1000.000000000000000</double>
+      </property>
+      <property name="singleStep">
+       <double>10.000000000000000</double>
+      </property>
+      <property name="value">
+       <double>300.000000000000000</double>
+      </property>
+     </widget>
+     <!-- Combo original sincronizado (oculto) -->
+     <widget class="QComboBox" name="cmbx_profundidad">
+      <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+      <property name="visible"><bool>false</bool></property>
+     </widget>
+    </widget>
+
+    <!-- Sub-bloque B: Filtro de Magnitud -->
+    <widget class="QGroupBox" name="grupo_filtro_mag">
+     <property name="geometry">
+      <rect>
+       <x>12</x>
+       <y>225</y>
+       <width>438</width>
+       <height>82</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="title">
+      <string>Filtro de Magnitud (Md)</string>
+     </property>
+     <widget class="QRadioButton" name="rb_mag_todos">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>22</y>
+        <width>180</width>
+        <height>22</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Todas las magnitudes</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+     </widget>
+     <widget class="QLabel" name="lbl_umbral_rapido">
+      <property name="geometry">
+       <rect>
+        <x>210</x>
+        <y>22</y>
+        <width>115</width>
+        <height>22</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Umbral rápido (&gt;=):</string>
+      </property>
+     </widget>
+     <widget class="QComboBox" name="cmbx_magnitud">
+      <property name="geometry">
+       <rect>
+        <x>330</x>
+        <y>21</y>
+        <width>85</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+     </widget>
+     <widget class="QRadioButton" name="rb_mag_rango">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>50</y>
+        <width>165</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>75</weight>
+        <bold>true</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Rango numérico (Md):</string>
+      </property>
+     </widget>
+     <widget class="QDoubleSpinBox" name="spin_mag_min">
+      <property name="geometry">
+       <rect>
+        <x>180</x>
+        <y>50</y>
+        <width>95</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="suffix">
+       <string> Md</string>
+      </property>
+      <property name="decimals">
+       <number>1</number>
+      </property>
+      <property name="minimum">
+       <double>-1.000000000000000</double>
+      </property>
+      <property name="maximum">
+       <double>9.500000000000000</double>
+      </property>
+      <property name="singleStep">
+       <double>0.100000000000000</double>
+      </property>
+      <property name="value">
+       <double>0.000000000000000</double>
+      </property>
+     </widget>
+     <widget class="QLabel" name="lbl_mag_a">
+      <property name="geometry">
+       <rect>
+        <x>280</x>
+        <y>50</y>
+        <width>25</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>a</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+     <widget class="QDoubleSpinBox" name="spin_mag_max">
+      <property name="geometry">
+       <rect>
+        <x>310</x>
+        <y>50</y>
+        <width>105</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="suffix">
+       <string> Md</string>
+      </property>
+      <property name="decimals">
+       <number>1</number>
+      </property>
+      <property name="minimum">
+       <double>0.000000000000000</double>
+      </property>
+      <property name="maximum">
+       <double>10.000000000000000</double>
+      </property>
+      <property name="singleStep">
+       <double>0.100000000000000</double>
+      </property>
+      <property name="value">
+       <double>9.000000000000000</double>
+      </property>
+     </widget>
+    </widget>
+
+    <!-- Sub-bloque C: Filtro de N° Mínimo de Estaciones (Mecanismos Focales) -->
+    <widget class="QGroupBox" name="grupo_filtro_nest">
+     <property name="geometry">
+      <rect>
+       <x>12</x>
+       <y>313</y>
+       <width>438</width>
+       <height>74</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="title">
+      <string>Clasificación por N° Mínimo de Estaciones (Mecanismos Focales)</string>
+     </property>
+     <widget class="QLabel" name="label_t_12">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>22</y>
+        <width>240</width>
+        <height>22</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Mínimo de estaciones caracterizadas (&gt;=):</string>
+      </property>
+     </widget>
+     <widget class="QComboBox" name="cmbx_n_estaciones">
+      <property name="geometry">
+       <rect>
+        <x>255</x>
+        <y>21</y>
+        <width>85</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+     </widget>
+     <widget class="QCheckBox" name="ck_nest_catalogo">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>48</y>
+        <width>420</width>
+        <height>20</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>8</pointsize>
+        <weight>50</weight>
+        <bold>false</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Aplicar este mínimo de estaciones también al Catálogo / Mapa PDF (no solo al XML)</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </widget>
+   </widget>
+
+   <!-- ========================================================================= -->
+   <!-- ZONA 4: CONDICIONES DE IMPRESIÓN PDF Y GUARDADO (COLUMNA DERECHA INFERIOR) -->
+   <!-- ========================================================================= -->
+   <widget class="QGroupBox" name="grupo_impresion_pdf">
+    <property name="geometry">
+     <rect>
+      <x>488</x>
+      <y>409</y>
+      <width>462</width>
+      <height>165</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+      <weight>75</weight>
+      <bold>true</bold>
+     </font>
+    </property>
+    <property name="title">
+     <string>4. CONDICIONES DE IMPRESIÓN DEL INFORME PDF Y GUARDADO</string>
+    </property>
+    <widget class="QCheckBox" name="ck_box_reporte">
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>24</y>
+       <width>435</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Reporte Detallado (Incluir fichas individuales y hojas de señales por sismo)</string>
+     </property>
+     <property name="checked">
+      <bool>true</bool>
+     </property>
+    </widget>
+    <widget class="QCheckBox" name="ck_box_firma">
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>48</y>
+       <width>435</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Incluir Firma Institucional al pie del catálogo</string>
+     </property>
+     <property name="checked">
+      <bool>true</bool>
+     </property>
+    </widget>
+    <widget class="QRadioButton" name="rb_circulos_rellenos">
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>72</y>
+       <width>135</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="toolTip">
+      <string>Dibuja círculos rellenos con opacidad 0.7 clasificados por profundidad.</string>
+     </property>
+     <property name="text">
+      <string>Círculos rellenos</string>
+     </property>
+     <property name="checked">
+      <bool>true</bool>
+     </property>
+    </widget>
+    <widget class="QRadioButton" name="rb_circulos_sin_relleno">
+     <property name="geometry">
+      <rect>
+       <x>152</x>
+       <y>72</y>
+       <width>142</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="toolTip">
+      <string>Dibuja circunferencias sin relleno para catálogos densos o históricos.</string>
+     </property>
+     <property name="text">
+      <string>Círculos sin relleno</string>
+     </property>
+     <property name="checked">
+      <bool>false</bool>
+     </property>
+    </widget>
+    <widget class="QRadioButton" name="rb_circulos_concentricos">
+     <property name="geometry">
+      <rect>
+       <x>298</x>
+       <y>72</y>
+       <width>155</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="toolTip">
+      <string>Dibuja círculos concéntricos difuminados por sismo (imprime únicamente el mapa principal sin detalle adicional).</string>
+     </property>
+     <property name="text">
+      <string>Círculos concéntricos</string>
+     </property>
+     <property name="checked">
+      <bool>false</bool>
+     </property>
+    </widget>
+    <!-- Controles ocultos de retrocompatibilidad -->
+    <widget class="QCheckBox" name="ck_box_relleno">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+     <property name="checked"><bool>true</bool></property>
+    </widget>
+    <widget class="QCheckBox" name="ck_box_concentricos">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+     <property name="checked"><bool>false</bool></property>
+    </widget>
+    <widget class="QLabel" name="lbl_resumen_impresion">
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>96</y>
+       <width>435</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string>color: #1e3a8a;</string>
+     </property>
+     <property name="text">
+      <string>Modo PDF: M3 — Boletín Oficial Detallado RSA</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="Btn_guardar">
+     <property name="enabled">
+      <bool>false</bool>
+     </property>
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>120</y>
+       <width>280</width>
+       <height>34</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Guardar Informe PDF, Catálogo y XML</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="Btn_Salir">
+     <property name="geometry">
+      <rect>
+       <x>310</x>
+       <y>120</y>
+       <width>138</width>
+       <height>34</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>9</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Salir</string>
+     </property>
+    </widget>
+   </widget>
+   <!-- ========================================================================= -->
+   <!-- ZONA 5: VISTA PREVIA CARTOGRÁFICA GIS (COLUMNA DERECHA)                    -->
+   <!-- ========================================================================= -->
+   <widget class="QGroupBox" name="grupo_vista_gis">
+    <property name="geometry">
+     <rect>
+      <x>965</x>
+      <y>8</y>
+      <width>515</width>
+      <height>562</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>9</pointsize>
+      <weight>75</weight>
+      <bold>true</bold>
+     </font>
+    </property>
+    <property name="title">
+     <string>5. VISTA PREVIA CARTOGRÁFICA (GIS)</string>
+    </property>
+    <widget class="QWidget" name="contenedor_mapa_gis" native="true">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>22</y>
+       <width>495</width>
+       <height>458</height>
+      </rect>
+     </property>
+    </widget>
+    <widget class="QCheckBox" name="ck_gis_estaciones">
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>484</y>
+       <width>220</width>
+       <height>20</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="toolTip">
+      <string>Muestra u oculta las estaciones sísmicas de la RSA sobre el mapa GIS.</string>
+     </property>
+     <property name="text">
+      <string>Mostrar estaciones de la red</string>
+     </property>
+     <property name="checked">
+      <bool>true</bool>
+     </property>
+    </widget>
+    <widget class="QLabel" name="lbl_resumen_gis">
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>505</y>
+       <width>485</width>
+       <height>18</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string>color: #1e3a8a;</string>
+     </property>
+     <property name="text">
+      <string>GIS: Cargue un período o catálogo para visualizar los epicentros.</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="btn_actualizar_gis">
+     <property name="geometry">
+      <rect>
+       <x>14</x>
+       <y>526</y>
+       <width>155</width>
+       <height>28</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="toolTip">
+      <string>Redibuja el mapa GIS aplicando los filtros activos de Región, Profundidad, Magnitud y N° de Estaciones.</string>
+     </property>
+     <property name="text">
+      <string>Actualizar Vista GIS</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="btn_ampliar_gis">
+     <property name="geometry">
+      <rect>
+       <x>179</x>
+       <y>526</y>
+       <width>155</width>
+       <height>28</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="toolTip">
+      <string>Abre el mapa cartográfico GIS en una ventana emergente amplia con herramientas de zoom y desplazamiento.</string>
+     </property>
+     <property name="text">
+      <string>Ampliar en Ventana</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="btn_exportar_gis">
+     <property name="geometry">
+      <rect>
+       <x>344</x>
+       <y>526</y>
+       <width>156</width>
+       <height>28</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>8</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="toolTip">
+      <string>Exporta la vista actual del mapa GIS como imagen de alta resolución (.png) en la carpeta del reporte.</string>
+     </property>
+     <property name="text">
+      <string>Guardar Imagen (.png)</string>
+     </property>
+    </widget>
    </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
@@ -811,7 +1665,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>437</width>
+     <width>1495</width>
      <height>21</height>
     </rect>
    </property>

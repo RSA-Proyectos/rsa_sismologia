@@ -483,18 +483,17 @@ def guardar_informacion_diaria(archivo,directorio_trabajo,catalogo_anterior,even
     #directorio_trabajo:   Directorio del drive de trabajo
     #catalogo_anterior:    Catalogo encontrado en el día para cargar la información de otras redes.
     print("guardar_informacion_diaria")
-    archivo=archivo[-16:]
-    directorios=obtener_directorios(archivo)
-    archivo_csv=directorio_trabajo+'/'+directorios['Directorio_base']+'/'+archivo
+    ruta_entrada = archivo if os.path.isabs(str(archivo)) else os.path.join(directorio_trabajo, str(archivo))
+    directorios = obtener_directorios(ruta_entrada)
+    archivo_csv = directorios['archivo_csv']
     catalogo=[["Id","anio","mes","dia","hora","min","seg","lat","long","prof","rms","e-x","e-y","e-0","e-z","Mag","Tipo Mag","Fuente","ruta","Ubicacion"]]
     eventos_reporte=[['0',"Fecha Hora (UTC)","Evento","Magn.","Prof.(km)","Lat.","Long.","Ubicación"]]
-    archivo_xml=archivo_csv[:-4]+".xml"
-    archivo_dat=archivo_csv[:-4]+"_rep.csv"
-    archivo_cat=archivo_csv[:-4]+"_cat.csv"
-    archivo_res=archivo_csv[:-4]+"_res.csv"
-    nombre_directorio_reportes=directorios['Directorio_reportes']
-    archivo_responsables=directorio_trabajo+nombre_directorio_reportes+'/'+archivo_csv[-25:-23]+archivo_csv[-22:-20]+archivo_csv[-19:-17]+'_tiempos.csv'
-    rep_responsables=directorio_trabajo+nombre_directorio_reportes+archivo_csv[-25:-23]+archivo_csv[-22:-20]+archivo_csv[-19:-17]+'_resp.csv'
+    archivo_xml = directorios['archivo_xml']
+    archivo_dat = directorios['archivo_reporte']
+    archivo_cat = directorios['archivo_catalogo']
+    archivo_res = directorios['archivo_resumen']
+    archivo_responsables = directorios['archivo_tiempos']
+    rep_responsables = directorios['archivo_responsables']
     contador_n_canales=[[0,0,0,0,0,0],[0,0,0,0,0,0],[0,0,0,0,0,0]]#Tupla que contiene el número de estaciones por evento sísmico.
     indice_responsables=[0,0,0]
     root = ET.Element("sismo")
@@ -529,9 +528,11 @@ def guardar_informacion_diaria(archivo,directorio_trabajo,catalogo_anterior,even
                     n_periodo=1
                 else:
                     n_periodo=2
-                contador_n_canales[n_periodo][n_estaciones-3]=contador_n_canales[n_periodo][n_estaciones-3]+1
+                idx_est = min(max(0, n_estaciones - 3), 5)
+                contador_n_canales[n_periodo][idx_est]=contador_n_canales[n_periodo][idx_est]+1
                 catalogo_grabar=catalogo_grabar[0]
-        catalogo.append(catalogo_grabar)
+        if catalogo_grabar!=[]:
+            catalogo.append(catalogo_grabar)
         eventos_reporte.append(evento_grabar)
         evento_canales.append(evento_canales)
         
@@ -570,29 +571,100 @@ def guardar_informacion_diaria(archivo,directorio_trabajo,catalogo_anterior,even
                     responsable.append(aux[0])
     else:
             pass
-    for i  in range(1,len(catalogo_anterior)):
-        if catalogo_anterior[i]==[]:
-            continue
-        id_evento=catalogo_anterior[i][0]
-        if id_evento[-1]=='0':#La ultima cifra del id del evento diferente de 0, es decir es de otras redes
-            continue
-        numero=int(id_evento)
-        for j in range(1,len(catalogo)):
-            if catalogo[j]==[]:
+    # Recolectar eventos de otras redes desde catalogo_anterior y desde archivo_cat en disco
+    filas_otras_redes = []
+    claves_otras_redes = set()
+    fuentes_previas = [catalogo_anterior or []]
+    if os.path.exists(archivo_cat):
+        cat_disco = lectura_archivo(archivo_cat)
+        if cat_disco:
+            fuentes_previas.append(cat_disco)
+
+    for fuente_cat in fuentes_previas:
+        for fila_prev in fuente_cat:
+            if not fila_prev or len(fila_prev) < 19:
                 continue
-            evento=catalogo[j][0]
-            otro_numero=int(evento)
-            if otro_numero>numero:
-                    catalogo.insert(j,catalogo_anterior[i])
+            id_ev = str(fila_prev[0]).strip()
+            if id_ev == 'Id' or id_ev[-2:] == '00':
+                continue
+            clave_ext = (id_ev, str(fila_prev[17]).strip(), str(fila_prev[18]).strip())
+            if clave_ext not in claves_otras_redes:
+                claves_otras_redes.add(clave_ext)
+                filas_otras_redes.append(fila_prev)
+
+    for evento_otras_redes in filas_otras_redes:
+        id_evento = str(evento_otras_redes[0]).strip()
+        insertado_cat = False
+        try:
+            numero = int(id_evento)
+            for j in range(1, len(catalogo)):
+                if not catalogo[j]:
+                    continue
+                otro_numero = int(catalogo[j][0])
+                if otro_numero > numero:
+                    catalogo.insert(j, evento_otras_redes)
+                    insertado_cat = True
                     break
-        evento_otras_redes=catalogo_anterior[i]
-        numero=int(evento_otras_redes [18][-10:-4])
-        for j in range(1,len(eventos_reporte)):
-            otro_numero=int(eventos_reporte[j][1][-10:-4])
-            if otro_numero>numero:
-                variable=[eventos[j-1][0],evento_otras_redes[18],evento_otras_redes[17],evento_otras_redes[15],evento_otras_redes[9],evento_otras_redes[7],evento_otras_redes[8]]
-                eventos_reporte.insert(j,variable)
-                break
+        except Exception:
+            pass
+        if not insertado_cat:
+            catalogo.append(evento_otras_redes)
+
+        ubic_ext = evento_otras_redes[19] if len(evento_otras_redes) > 19 else ""
+        ruta_asociada = str(evento_otras_redes[18]).strip()
+        insertado_rep = False
+        try:
+            for j in range(1, len(eventos_reporte)):
+                if str(eventos_reporte[j][1]).strip() == ruta_asociada:
+                    variable = [
+                        eventos_reporte[j][0],
+                        evento_otras_redes[18],
+                        evento_otras_redes[17],
+                        evento_otras_redes[15],
+                        evento_otras_redes[9],
+                        evento_otras_redes[7],
+                        evento_otras_redes[8],
+                        ubic_ext,
+                    ]
+                    eventos_reporte.insert(j + 1, variable)
+                    insertado_rep = True
+                    break
+            if not insertado_rep:
+                numero = int(ruta_asociada[-10:-4])
+                for j in range(1, len(eventos_reporte)):
+                    otro_txt = str(eventos_reporte[j][1]).strip()
+                    if len(otro_txt) >= 10 and otro_txt[-10:-4].isdigit():
+                        otro_numero = int(otro_txt[-10:-4])
+                        if otro_numero > numero:
+                            orden_prev = eventos_reporte[j - 1][0] if j > 1 else 1
+                            variable = [
+                                orden_prev,
+                                evento_otras_redes[18],
+                                evento_otras_redes[17],
+                                evento_otras_redes[15],
+                                evento_otras_redes[9],
+                                evento_otras_redes[7],
+                                evento_otras_redes[8],
+                                ubic_ext,
+                            ]
+                            eventos_reporte.insert(j, variable)
+                            insertado_rep = True
+                            break
+        except Exception:
+            pass
+        if not insertado_rep:
+            orden_ult = eventos_reporte[-1][0] if len(eventos_reporte) > 1 else 1
+            eventos_reporte.append([
+                orden_ult,
+                evento_otras_redes[18],
+                evento_otras_redes[17],
+                evento_otras_redes[15],
+                evento_otras_redes[9],
+                evento_otras_redes[7],
+                evento_otras_redes[8],
+                ubic_ext,
+            ])
+
     catalogo=ordenar_y_eliminar_duplicados(catalogo,0)
     escritura_archivo(archivo_cat,catalogo)
     escritura_archivo(archivo_dat,eventos_reporte)

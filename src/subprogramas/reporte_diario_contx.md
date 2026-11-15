@@ -74,17 +74,18 @@ graph TD
 |---|---|---|---|
 | `__init__()` | Atributos de estado, UI | Carga la interfaz `.ui`, inicializa el lienzo Matplotlib y conecta señales. | Medio |
 | `showDate()` | `self.archivo`, directorios | Actualiza la fecha seleccionada desde el calendario Qt y lanza `cargar_dia()`. | Medio |
-| `cargar_dia()` | `catalogo`, `eventos`, `resumen` | Carga matrices del día y puebla el combo de eventos. | Alto |
+| `cargar_dia()` | `catalogo`, `eventos`, `resumen` | Carga matrices del día, sincroniza de forma automática y transparente contra IGEPN web y USGS API (`sincronizar_otras_redes_dia`) y puebla el combo de eventos. | Alto |
 | `Cargar_evento()` | `trCanal`, `visor` | Lee el evento seleccionado y lo dibuja en el canvas. | Alto |
 | `Graficar_()` | `visor`, `canvas` | Dibuja trazas multicanal del evento seleccionado. | Medio |
 | `cambio_pagina()` | `self.pagina`, `visor` | Avanza en la paginación de estaciones (bloques de 6). | Bajo |
 | `filtrar_evento()` | `trCanal`, `visor` | Aplica filtro pasa-banda interactivo a la visualización activa. | Medio |
 | `Modificar_()` | `eventos_reporte`, `eventos` | Actualiza la clasificación del evento seleccionado. | Medio |
+| `al_cambiar_red()` | `textEdit`, `cmbx_tipo_mag` | Precarga automáticamente desde la web del IGEPN o API de la USGS los datos del evento seleccionado al elegir la red. | Bajo |
 | `Insertar_evento()` | `catalogo`, `eventos` | Inserta solución hipocentral de redes externas (IGEPN, etc.). | Alto |
 | `Generar_reporte_sismo()` | Archivo PDF | Genera ficha técnica de sismo individual. | Medio |
 | `Acelerograma_()` | Archivo PDF | Genera ficha técnica de acelerograma. | Medio |
 | `estacion_calidad()` | Diálogo `estaciones_` | Abre diálogo para cálculo de calidad y niveles de ruido. | Medio |
-| `Guardar_()` | Archivos CSV, XML, PDF | Guarda matrices diarias y genera el PDF de reporte diario. | Alto |
+| `Guardar_()` | Archivos CSV, XML, PDF | Guarda matrices diarias (`Guardar_dia`), propaga en cascada a Semana/Mes/Año emitidos (`actualizar_periodos_emitidos_desde_fecha`) y genera el PDF de reporte diario. | Alto |
 | `limpiar_estado()` | Punteros, figuras | Libera canvas, figuras y datos en memoria. | Medio |
 | `Salir_()` | Ventana | Cierra la ventana y emite señal `cerrado`. | Bajo |
 

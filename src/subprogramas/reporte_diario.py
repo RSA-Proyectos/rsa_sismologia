@@ -24,9 +24,14 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
 from rsa_io import leer_mseed,Guardar_dia
 from rsa_dominio import calidad_estacion
+from rsa_utilidades import actualizar_periodos_emitidos_desde_fecha
 
 from metodos_rsa import grafico_evento_int,cargar_evento,cargar_dia
-from metodos_rsa import insertar_evento_otras_redes
+from metodos_rsa import (
+    insertar_evento_otras_redes,
+    buscar_evento_otra_red_en_linea,
+    sincronizar_otras_redes_dia,
+)
 from rsa_pdf_catalogo import reporte_resumen_modos
 from metodos_gestion import parametros_estaciones,obtener_directorios
 from metodos_reportes_individuales import generar_reporte_sismo,generar_reporte_acelerograma
@@ -116,7 +121,8 @@ class Reporte_diario(QMainWindow):
         lista_filtros = [" ","IGEPN", "USGS", "Otras redes"]
         self.cmbx_red.addItems(lista_filtros)
         lista_filtros = [" ","M", "MLv", "Md","Mc","Mw","Mb"]
-        self.cmbx_tipo_mag.addItems(lista_filtros)       
+        self.cmbx_tipo_mag.addItems(lista_filtros)
+        self.cmbx_red.currentIndexChanged.connect(self.al_cambiar_red)       
         self.Lbl_directorio.setText(self.directorio_trabajo)
         self.parametros=parametros_estaciones()#(nombre_canal_total_,nombre_canal,tipo_canal_,n_canales_,hab_canal)
         self.numero_canal_=self.parametros['NUM_ESTACION']
@@ -190,6 +196,29 @@ class Reporte_diario(QMainWindow):
         self.eventos_reporte,self.catalogo,self.eventos, \
         self.vector,self.evento_canales, \
         self.root,self.responsables,self.resumen=cargar_dia(self.directorios)
+        try:
+            self.catalogo, self.eventos_reporte, hubo_cambios_ext = sincronizar_otras_redes_dia(
+                self.directorios,
+                self.catalogo,
+                self.eventos_reporte,
+                self.eventos,
+            )
+            if hubo_cambios_ext:
+                Guardar_dia(
+                    self.eventos_reporte,
+                    self.catalogo,
+                    self.eventos,
+                    self.root,
+                    self.responsables,
+                    self.resumen,
+                    self.directorios,
+                )
+                actualizar_periodos_emitidos_desde_fecha(
+                    self.directorios.get('archivo_csv', self.archivo),
+                    self.directorio_trabajo,
+                )
+        except Exception:
+            pass
         self.Btn_graficar.setEnabled(False)
         self.Btn_pagina.setEnabled(False)
         self.cmbx_evento.setEnabled(False)
@@ -222,7 +251,20 @@ class Reporte_diario(QMainWindow):
 
 
     def Guardar_(self):
+        try:
+            self.catalogo, self.eventos_reporte, _ = sincronizar_otras_redes_dia(
+                self.directorios,
+                self.catalogo,
+                self.eventos_reporte,
+                self.eventos,
+            )
+        except Exception:
+            pass
         Guardar_dia(self.eventos_reporte,self.catalogo,self.eventos,self.root,self.responsables,self.resumen,self.directorios)
+        actualizar_periodos_emitidos_desde_fecha(
+            self.directorios.get('archivo_csv', self.archivo),
+            self.directorio_trabajo,
+        )
         tree = ET.ElementTree(self.root)
         mapa_=1
         tipo_mapa=0
@@ -266,16 +308,18 @@ class Reporte_diario(QMainWindow):
         if self.bandera_evento==1:
             self.Cargar_evento()
         else:
-            if self.evento_escogido[0][2]=='SISMO':
+            if self.evento_escogido[0][2] in ('SISMO', 'FF', 'FC'):
                 self.Btn_generar.setEnabled(True)
             else:
                 self.Btn_generar.setEnabled(False)
-            if self.evento_escogido[0][2]=='Ruido':
+            if self.evento_escogido[0][2] in ('Ruido', 'CONTROL'):
                 self.Btn_graficar.setEnabled(False)
                 self.Btn_pagina.setEnabled(False)
+                self.Btn_acelerograma.setEnabled(False)
             else:
                 self.Btn_graficar.setEnabled(True)
                 self.Btn_pagina.setEnabled(True)
+                self.Btn_acelerograma.setEnabled(True)
             self.textEdit.setEnabled(True)
             self.textEdit_2.setEnabled(True)
             self.cmbx_red.setEnabled(True)
@@ -315,18 +359,40 @@ class Reporte_diario(QMainWindow):
         self.label_5.setText(minuto_s_ev)
         segundo_s_ev=dato_escogido[1][11:13]
         self.label_6.setText(segundo_s_ev)
-        self.Btn_generar.setEnabled(True)
-        if self.evento_escogido[0][2]=='Ruido':
+        es_no_reportable = dato_escogido[2] in ('Ruido', 'CONTROL')
+        self.Btn_generar.setEnabled(not es_no_reportable)
+        self.Btn_acelerograma.setEnabled(not es_no_reportable)
+        if dato_escogido[2]=='Ruido':
             self.Btn_graficar.setEnabled(False)
             self.Btn_pagina.setEnabled(False)
         else:
             self.Btn_graficar.setEnabled(True)
             self.Btn_pagina.setEnabled(True)
-        self.textEdit.setEnabled(True)
-        self.textEdit_2.setEnabled(True)
-        self.cmbx_red.setEnabled(True)
-        self.cmbx_tipo_mag.setEnabled(True)
-        self.Btn_insertar.setEnabled(True)
+        self.textEdit.setEnabled(not es_no_reportable)
+        self.textEdit_2.setEnabled(not es_no_reportable)
+        self.cmbx_red.setEnabled(not es_no_reportable)
+        self.cmbx_tipo_mag.setEnabled(not es_no_reportable)
+        self.Btn_insertar.setEnabled(not es_no_reportable)
+
+    def al_cambiar_red(self, indice_red):
+        """
+        Al seleccionar IGEPN o USGS en el combo, consulta en línea si existe un
+        sismo coincidente (±60 s) para el evento actual y precarga los datos.
+        """
+        if indice_red not in (1, 2):
+            return
+        if self.textEdit.toPlainText().strip():
+            return
+        if not getattr(self, 'evento_escogido', None) or not self.evento_escogido[0]:
+            return
+        nombre_ev = str(self.evento_escogido[0][1]).strip()
+        nombre_red = "IGEPN" if indice_red == 1 else "USGS"
+        sismo_web = buscar_evento_otra_red_en_linea(nombre_ev, self.catalogo, nombre_red)
+        if sismo_web:
+            self.textEdit.setPlainText(sismo_web["texto_formateado"])
+            idx_mag = self.cmbx_tipo_mag.findText(sismo_web["tipo_mag"])
+            if idx_mag >= 0:
+                self.cmbx_tipo_mag.setCurrentIndex(idx_mag)
 
     def Insertar_evento(self):
         red_=self.cmbx_red.currentIndex()
@@ -347,6 +413,11 @@ class Reporte_diario(QMainWindow):
             self.indice,
             self.indice_local
             )
+        Guardar_dia(self.eventos_reporte,self.catalogo,self.eventos,self.root,self.responsables,self.resumen,self.directorios)
+        actualizar_periodos_emitidos_desde_fecha(
+            self.directorios.get('archivo_csv', self.archivo),
+            self.directorio_trabajo,
+        )
         self.textEdit.clear()
         self.textEdit.setEnabled(False)
         self.textEdit_2.clear()
@@ -382,7 +453,7 @@ class Reporte_diario(QMainWindow):
         self.eventos_reporte[self.indice][3]=""
 
     def Acelerograma_(self):
-        generar_reporte_acelerograma(self.eventos_reporte,self.indice,self.catalogo,self.evento_escogido,self.archivo_escogido)
+        generar_reporte_acelerograma(self.eventos,self.indice_local-1,self.catalogo,self.evento_escogido,self.archivo_escogido)
         
 
     def filtrar_evento(self):

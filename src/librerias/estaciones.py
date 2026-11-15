@@ -23,14 +23,13 @@ datos_sismo={}
 
 class estaciones_(QDialog):
     def __init__(self, hab_grafico,estaciones_eventos,filtros,parent=None):
-        super(estaciones_,self).__init__()
         super().__init__(parent)
         self.parent=parent
         self.parametros=parametros_estaciones()#parametros son los parametros de las estaciones (nombre_canal_total_,nombre_canal,tipo_canal_,n_canales_,hab_canal)
         self.estaciones_eventos=estaciones_eventos
         self.filtros=filtros
         self.numero_estaciones=len(self.estaciones_eventos)
-        self.hab_grafico=self.hab_grafico
+        self.hab_grafico=hab_grafico
         self.setFixedSize(410, 420)
 
         ruta_ui =  os.path.join(ruta_proyecto,"src",  "ui", "secundaria.ui")

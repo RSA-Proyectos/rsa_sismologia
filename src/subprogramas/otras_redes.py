@@ -25,8 +25,9 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from rsa_io import lectura_archivo,escritura_archivo,Guardar_dia
 from rsa_procesamiento import ordenar_y_eliminar_duplicados
 
-from metodos_rsa import cargar_dia
+from metodos_rsa import cargar_dia, extraer_datetime_evento_rsa
 from metodos_gestion import obtener_directorios
+from rsa_utilidades import ubicacion, actualizar_periodos_emitidos_desde_fecha
 
 from PyQt5 import uic
 from PyQt5.QtWidgets import (QMainWindow)
@@ -75,46 +76,108 @@ class Otras_redes(QMainWindow):
 
     def leer_datos(self):
         catalogo_otras_redes = self.leer_qtextedit_como_matriz(self.textEdit)
+        dias_modificados = set()
         for evento_otras_redes in catalogo_otras_redes:
-            hora_otras_redes = self.lectura_hora(evento_otras_redes[IDX_EVENTO]) 
-            archivo=os.path.join(self.directorio_trabajo,evento_otras_redes[IDX_EVENTO].split(".", 1)[0].replace("_", ""))
-            directorios=obtener_directorios(archivo)
-            eventos=lectura_archivo(directorios["archivo_csv"])
-            catalogo=lectura_archivo(directorios["archivo_catalogo"])
+            hora_otras_redes = self.lectura_hora(evento_otras_redes[IDX_EVENTO])
+            if hora_otras_redes is None:
+                continue
+            archivo = os.path.join(
+                self.directorio_trabajo,
+                evento_otras_redes[IDX_EVENTO].split(".", 1)[0].replace("_", "")
+            )
+            directorios = obtener_directorios(archivo)
+            if not os.path.exists(directorios["archivo_catalogo"]) and not os.path.exists(directorios["archivo_csv"]):
+                continue
+
+            catalogo = lectura_archivo(directorios["archivo_catalogo"]) if os.path.exists(directorios["archivo_catalogo"]) else []
+            eventos = lectura_archivo(directorios["archivo_csv"]) if os.path.exists(directorios["archivo_csv"]) else []
+
             mejor_delta_seg = None
-            mejor_evento = None
-            for evento in eventos:
-                if not(evento[2]=="SISMO" or evento[2]=="FC" or evento[2]=="FF"):
+            mejor_fila_cat = None
+            mejor_evento_sis = None
+
+            # 1) Búsqueda prioritaria en función del catálogo de la Red Sísmica (_cat.csv)
+            for fila_cat in catalogo:
+                if not fila_cat or len(fila_cat) <= IDX_EVENTO or fila_cat[0] == "Id":
                     continue
-                hora_evento=self.lectura_hora(evento[1])
-                delta_seg = abs((hora_evento - hora_otras_redes).total_seconds())
+                if str(fila_cat[IDX_FUENTE]).strip() != "RSA" and not str(fila_cat[IDX_INDICE]).strip().endswith("00"):
+                    continue
+                hora_cat = extraer_datetime_evento_rsa(fila_cat[IDX_EVENTO], catalogo)
+                if hora_cat is None:
+                    continue
+                delta_seg = abs((hora_cat - hora_otras_redes).total_seconds())
                 if (mejor_delta_seg is None) or (delta_seg < mejor_delta_seg):
                     mejor_delta_seg = delta_seg
-                    mejor_evento = evento
-            # Resultado por cada evento de otras redes
-            if mejor_delta_seg < 60:
-                if mejor_evento[2]=='SISMO':
-                    for evento_catalogo in catalogo:
-                        if mejor_evento[1]==evento_catalogo[IDX_EVENTO]:
-                            break
-                    evento_otras_redes[IDX_INDICE]=evento_catalogo[IDX_INDICE][:-2]+evento_otras_redes[IDX_INDICE][-2:]
-                    evento_otras_redes[IDX_EVENTO]=evento_catalogo[IDX_EVENTO]
+                    mejor_fila_cat = fila_cat
+                    mejor_evento_sis = fila_cat[IDX_EVENTO]
+
+            # 2) Respaldo sobre eventos FF / FC / SISMO del archivo diario AAAAMMDD000000.csv
+            if mejor_delta_seg is None or mejor_delta_seg >= 60:
+                for evento in eventos:
+                    if not evento or len(evento) < 3:
+                        continue
+                    if evento[2] not in ("SISMO", "FC", "FF"):
+                        continue
+                    hora_evento = extraer_datetime_evento_rsa(evento[1], catalogo)
+                    if hora_evento is None:
+                        continue
+                    delta_seg = abs((hora_evento - hora_otras_redes).total_seconds())
+                    if (mejor_delta_seg is None) or (delta_seg < mejor_delta_seg):
+                        mejor_delta_seg = delta_seg
+                        mejor_fila_cat = None
+                        mejor_evento_sis = evento[1]
+
+            # Resultado por cada evento de otras redes que coincida (< 60 s)
+            if mejor_delta_seg is not None and mejor_delta_seg < 60 and mejor_evento_sis:
+                if mejor_fila_cat is not None:
+                    evento_otras_redes[IDX_INDICE] = (
+                        str(mejor_fila_cat[IDX_INDICE]).strip()[:-2]
+                        + str(evento_otras_redes[IDX_INDICE]).strip()[-2:]
+                    )
+                    evento_otras_redes[IDX_EVENTO] = str(mejor_fila_cat[IDX_EVENTO]).strip()
                 else:
-                    evento_otras_redes[IDX_EVENTO]=mejor_evento[1]
+                    evento_otras_redes[IDX_EVENTO] = str(mejor_evento_sis).strip()
+
+                try:
+                    evento_otras_redes[IDX_LUGAR] = ubicacion(
+                        float(evento_otras_redes[IDX_LATITUD]),
+                        float(evento_otras_redes[IDX_LONGITUD]),
+                    )
+                except Exception:
+                    pass
+
+                catalogo = [
+                    f for f in catalogo
+                    if not (
+                        f and len(f) > IDX_EVENTO and f[0] != "Id"
+                        and str(f[IDX_FUENTE]).strip() == str(evento_otras_redes[IDX_FUENTE]).strip()
+                        and str(f[IDX_EVENTO]).strip() == str(evento_otras_redes[IDX_EVENTO]).strip()
+                    )
+                ]
                 catalogo.append(evento_otras_redes)
-                ordenar_y_eliminar_duplicados(catalogo,0)
-                print("Ingresando evento",mejor_evento[1] , mejor_evento[2])
-            escritura_archivo(directorios["archivo_catalogo"],catalogo) #Graba los cambios en catalogopara ser cargados luego y genenrar el resto de archivos.
-            self.textEdit.clear()
-            eventos_reporte,catalogo,eventos, \
-            vector,evento_canales, \
-            root,responsables,resumen=cargar_dia(directorios['archivo_csv'])
-            Guardar_dia(eventos_reporte,catalogo,eventos,root,responsables,resumen,directorios)
-            
-    def lectura_hora(self,evento):
-        base = Path(evento).stem 
-        dt = datetime.strptime(base, "%Y%m%d_%H%M%S")
-        return dt
+                catalogo = ordenar_y_eliminar_duplicados(catalogo, 0)
+                print("Ingresando evento", evento_otras_redes[IDX_EVENTO], evento_otras_redes[IDX_FUENTE])
+                escritura_archivo(directorios["archivo_catalogo"], catalogo)
+                dias_modificados.add(directorios["archivo_csv"])
+
+        self.textEdit.clear()
+        for archivo_csv_dia in sorted(dias_modificados):
+            directorios_dia = obtener_directorios(archivo_csv_dia)
+            (
+                eventos_reporte,
+                catalogo,
+                eventos,
+                vector,
+                evento_canales,
+                root,
+                responsables,
+                resumen,
+            ) = cargar_dia(directorios_dia)
+            Guardar_dia(eventos_reporte, catalogo, eventos, root, responsables, resumen, directorios_dia)
+            actualizar_periodos_emitidos_desde_fecha(archivo_csv_dia, self.directorio_trabajo)
+
+    def lectura_hora(self, evento):
+        return extraer_datetime_evento_rsa(evento)
         
         
         

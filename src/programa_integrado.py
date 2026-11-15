@@ -9,7 +9,7 @@ plt.ioff()
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QAction, QMessageBox, QToolBar,
-    QLabel, QVBoxLayout, QWidget
+    QLabel, QVBoxLayout, QWidget, QPushButton, QSizePolicy
 )
 from PyQt5.QtGui import QIcon, QPainter, QPixmap, QFont
 from PyQt5.QtCore import Qt, QTimer
@@ -41,9 +41,11 @@ from subprogramas.marcar_eventos import Marcar_evento
 from subprogramas.procesamiento_integrado import Procesar_evento
 from subprogramas.reporte_diario import Reporte_diario
 from subprogramas.reporte_acumulado import Reporte_periodo
+from subprogramas.reporte_enjambre import Reporte_enjambre
 from subprogramas.inicio import Inicio_proceso
 from subprogramas.otras_redes import Otras_redes
 from rsa_procesamiento import extraer_dia
+from ayuda_contextual import mostrar_dialogo_ayuda_contextual
 
 
 def resolver_ruta_recurso(nombre_archivo, subdirectorio='datos'):
@@ -407,15 +409,22 @@ class VentanaPrincipal(QMainWindow):
         self.menu_otros_informes.addAction(self.accion_reporte_diario)
 
         ##########################################################################################
-        #  Menú seis: Ayuda
+        #  Menú seis: Ayuda (Siempre activo en cualquier estado o subprograma)
         ##########################################################################################
         self.menu_ayuda = self.barra_menu.addMenu('Ayuda')
+
+        self.accion_ayuda_contextual = QAction('Guía de esta pantalla (F1)', self)
+        self.accion_ayuda_contextual.setShortcut('F1')
+        self.accion_ayuda_contextual.triggered.connect(self.mostrar_ayuda_contextual)
+        self.menu_ayuda.addAction(self.accion_ayuda_contextual)
+
+        self.menu_ayuda.addSeparator()
 
         self.accion_acerca_de = QAction('Acerca de', self)
         self.accion_acerca_de.triggered.connect(self.acerca_de)
         self.menu_ayuda.addAction(self.accion_acerca_de)
 
-        # Configurar barra de herramientas superior con logo y datos generales
+        # Configurar barra de herramientas superior con logo, datos generales y botón de Ayuda
         self.barra_herramientas = QToolBar('Barra Principal')
         self.addToolBar(Qt.TopToolBarArea, self.barra_herramientas)
 
@@ -430,6 +439,22 @@ class VentanaPrincipal(QMainWindow):
         self.etiqueta_titulo.setFont(QFont('Arial', 10))
         self.etiqueta_titulo.setStyleSheet("margin-left: 15px; line-height: 120%; font-weight: bold; color: #2c3e50;")
         self.barra_herramientas.addWidget(self.etiqueta_titulo)
+
+        # Espaciador flexible y botón permanente de Ayuda Contextual a la derecha del banner
+        espaciador_barra = QWidget()
+        espaciador_barra.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.barra_herramientas.addWidget(espaciador_barra)
+
+        self.btn_ayuda_contextual = QPushButton('?  Ayuda de esta pantalla')
+        self.btn_ayuda_contextual.setFont(QFont('Arial', 9, QFont.Bold))
+        self.btn_ayuda_contextual.setToolTip('Muestra las instrucciones paso a paso de la pantalla o menú actual (Atajo: F1)')
+        self.btn_ayuda_contextual.setStyleSheet(
+            "QPushButton { background-color: #eff6ff; color: #1e3a8a; border: 1px solid #93c5fd; "
+            "border-radius: 5px; padding: 6px 14px; margin-right: 12px; } "
+            "QPushButton:hover { background-color: #dbeafe; }"
+        )
+        self.btn_ayuda_contextual.clicked.connect(self.mostrar_ayuda_contextual)
+        self.barra_herramientas.addWidget(self.btn_ayuda_contextual)
 
         self.barra_herramientas.setIconSize(self.logo_pixmap.size())
         self.barra_herramientas.setMovable(False)
@@ -525,7 +550,18 @@ class VentanaPrincipal(QMainWindow):
         )
 
     def reporte_enjambre(self):
-        QMessageBox.information(self, 'Informe', 'Módulo de análisis de enjambres sísmicos.')
+        """Cargar menú Reporte de Enjambres Sísmicos"""
+        widget_enjambre = Reporte_enjambre(
+            self.archivo,
+            self.directorio_trabajo,
+            self.responsable,
+            self.periodo
+        )
+        self.cargar_widget_menu(
+            widget_enjambre,
+            'PROCESAMIENTO INTEGRADO - INFORME DE ENJAMBRES SÍSMICOS',
+            True
+        )
 
     def creacion_shapes(self):
         QMessageBox.information(self, 'Informe', 'Generación de Shapes GIS (.shp, .dbf, .prj).')
@@ -627,6 +663,13 @@ class VentanaPrincipal(QMainWindow):
     ##########################################################################################
     #  Menú seis: Ayuda
     ##########################################################################################
+
+    def mostrar_ayuda_contextual(self):
+        """
+        Despliega la ventana de ayuda contextual correspondiente al estado del menú
+        o subprograma activo en este momento (también accesible con la tecla F1).
+        """
+        mostrar_dialogo_ayuda_contextual(self)
 
     def acerca_de(self):
         mensaje = (

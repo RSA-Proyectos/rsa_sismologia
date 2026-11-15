@@ -43,7 +43,7 @@ import pandas as pd
 #from rsa_dominio import *
 #from rsa_procesamiento import *
 
-from rsa_io import leer_mseed,lectura_archivo
+from rsa_io import leer_mseed,lectura_archivo,escritura_archivo
 from rsa_procesamiento import lectura_rsa,ordenar_y_eliminar_duplicados
 from metodos_gestion import parametros_estaciones,obtener_directorios
 from rsa_utilidades import agregar_evento,ubicacion,extraccion_dato
@@ -120,8 +120,9 @@ def grafico_evento_int(visor, stLeido, t_inicio, t_final, estaciones_evento, hab
             canal_ = estaciones_graficar[5 - i]
             componente_graficar = int(parametros['COMPONENTE'][canal_]) - 1
 
-            ax[i].plot(stLeido[canal_][componente_graficar].times("matplotlib"), st_graficar[5 - i].data, "b-")
-            ax[i].set_title(parametros['NOMBRE'][canal_])
+            ax[i].plot(stLeido[canal_][componente_graficar].times("matplotlib"), st_graficar[5 - i].data, "b-", linewidth=0.8)
+            ax[i].set_title(parametros['NOMBRE'][canal_], fontsize=8, pad=2)
+            ax[i].tick_params(axis='both', which='major', labelsize=7, pad=1)
             if bandera_marcas:
                 ax[i].axvline(marca_0, color="red")
                 ax[i].axvline(marca_1, color="green")
@@ -135,6 +136,7 @@ def grafico_evento_int(visor, stLeido, t_inicio, t_final, estaciones_evento, hab
             pass
 
     visor.autofmt_xdate()
+    visor.subplots_adjust(left=0.04, right=0.98, top=0.94, bottom=0.10, hspace=0.40)
 
     # Redibujar el canvas para mostrar los gráficos actualizados
     visor.canvas.draw()
@@ -270,39 +272,57 @@ def cargar_evento(parametro,eventos_reporte,catalogo,eventos,canales_eventos_dia
         catalogo (list):        Catalogo del día.
         eventos:                 Dato generado en cargar dia
         evento_canales:         Dato generado en cargar dia
-        directorio_trabajo:     Directorio de trabajo de ..\DIA\
+        directorio_trabajo:     Directorio de trabajo de ..\\DIA\\
         directorio_reporte:     Directorio donde se guarda el reporte
     """
     if parametro=='':
-            return
+        return
     ext=len(eventos_reporte)
-    dato=parametro
-    dato=dato.split("  ")
+    dato=parametro.split("  ")
     indice_local=int(dato[0])
-    evento_local=dato[1]
+    dato_escogido=eventos[indice_local-1] #evento desde el formato simple del día, solo número de evento y tipo
+    evento_local=str(dato_escogido[1]).strip()
     parametros=parametros_estaciones()
-    directorios=obtener_directorios(evento_local)
+    directorios=obtener_directorios(os.path.join(directorio_trabajo, evento_local))
     indice=0
     for i in range(0,ext):
-        if indice_local==eventos_reporte[i][0]:
+        if (
+            len(eventos_reporte[i]) > 1
+            and str(eventos_reporte[i][0]).strip() == str(indice_local)
+            and str(eventos_reporte[i][1]).strip() == evento_local
+        ):
             indice=i
             break
+    if indice == 0:
+        for i in range(0,ext):
+            if str(eventos_reporte[i][0]).strip() == str(indice_local):
+                indice=i
+                break
     ext=len(catalogo)
+    indice_catalogo=max(0, ext - 1)
     for i in range(0,ext):
-        if evento_local==catalogo[i][18]:
+        if len(catalogo[i]) > 18 and evento_local==str(catalogo[i][18]).strip():
+            indice_catalogo=i
             break
-    indice_catalogo=i
     evento_reporte_escogido=[]
-    evento_reporte_escogido.append(eventos_reporte[indice]) #evento desde el reporte completo del día
-    archivo_escogido=directorio_trabajo+'\\'+eventos[indice_local-1][1][0:8]+eventos[indice_local-1][1][9:15]#Variable que tiene el nombre en el formato adecuado para la ubicación de los eventos.
+    fila_rep_base = list(eventos_reporte[indice]) if indice < len(eventos_reporte) else [str(indice_local), evento_local, dato_escogido[2]]
+    if len(fila_rep_base) > 1:
+        fila_rep_base[1] = evento_local
+    evento_reporte_escogido.append(fila_rep_base) #evento desde el reporte completo del día
+    stem_evento = Path(dato_escogido[1]).stem.replace('_', '')
+    archivo_escogido=os.path.join(directorio_trabajo, stem_evento) #Variable que tiene el nombre en el formato adecuado para la ubicación de los eventos.
     canales=canales_eventos_dia[indice_local-1]
     trCanal=leer_mseed(archivo_escogido,1)
-    dato_escogido=eventos[indice_local-1] #evento desde el formato simple del día, solo número de evento y tipo
-    archivo_reporte=directorio_reporte+'/'+dato_escogido[1][:-4]+'_rep.pdf'
+    archivo_reporte=os.path.join(directorio_reporte, dato_escogido[1][:-4]+'_rep.pdf')
     estaciones_eventos=[]
+    dir_eventos = directorios['Directorio_eventos']
+    if not os.path.isabs(dir_eventos):
+        dir_eventos = os.path.join(directorio_trabajo, dir_eventos)
+    sufijo_ev = directorios.get('sufijo_mseed', '_' + evento_reporte_escogido[0][1][0:-4] + '.mseed')
     for i in range(0, len(parametros['CODIGO'])):#Verifica todos los archivos MSEED de registro continuo encontrados en la base de datos.
-        nombreMseed = directorio_trabajo+'/'+directorios['Directorio_eventos']+"/"+parametros['CODIGO'][i]+'_'+evento_reporte_escogido[0][1][0:-4]+".mseed"
-        if os.path.exists(nombreMseed):            
+        nombreMseed_1 = os.path.join(dir_eventos, parametros['CODIGO'][i]+'_'+evento_reporte_escogido[0][1][0:-4]+".mseed")
+        nombreMseed_2 = os.path.join(dir_eventos, parametros['CODIGO'][i]+sufijo_ev)
+        if os.path.exists(nombreMseed_1) or os.path.exists(nombreMseed_2):
             estaciones_eventos.append(int(parametros['NUM_ESTACION'][i]))
             parametros['HAB_GRAFICO'][i]="1"
         else:
@@ -347,12 +367,11 @@ def cargar_dia(directorios):
             if(evento_individual[2]=="SISMO"):
                 catalogo_grabar=lectura_rsa(evento_individual[1],directorio_trabajo,'')
                 if catalogo_grabar==None:
-                    print("Error detectado:",evento_individual[1])
-                    QMessageBox.information(None, "Aviso", evento_individual[1]+'\nNo procesado')
+                    print("Evento pendiente de procesar:",evento_individual[1])
                     evento_grabar.append("revisar")
                     catalogo_grabar=[]
                 elif catalogo_grabar==1:
-                    QMessageBox.information(None, "Aviso", evento_individual[1]+"\nError en procesamiento")
+                    print("Error en procesamiento:",evento_individual[1])
                     catalogo_grabar=[]
                 else:
                     agregar_evento(root,catalogo_grabar[0],catalogo_grabar[3])
@@ -368,7 +387,8 @@ def cargar_dia(directorios):
                         n_periodo=1
                     else:
                         n_periodo=2
-                    contador_n_canales[n_periodo][n_estaciones-3]=contador_n_canales[n_periodo][n_estaciones-3]+1
+                    idx_est = min(max(0, n_estaciones - 3), 5)
+                    contador_n_canales[n_periodo][idx_est]=contador_n_canales[n_periodo][idx_est]+1
                     for i in(7,8,9,15):
                         vector_temporal.append(catalogo_grabar[0][i])#Variable con datos del evento para desplegar en reporte diario.
                     vector_temporal.append(0)
@@ -386,13 +406,76 @@ def cargar_dia(directorios):
             if catalogo_existente is not None:
                 # 2.a) Desde el archivo existente
                 for evento_existente in catalogo_existente:
-                    if not evento_existente:
+                    if not evento_existente or len(evento_existente) < 19:
                         continue
                     if evento_existente[0] == 'Id':
                         continue
-                    if evento_existente[0][-2:] != '00':   # IGEPN (..01), USGS (..02) u otras no-RSA
+                    if str(evento_existente[0]).strip()[-2:] != '00':   # IGEPN (..01), USGS (..02) u otras no-RSA
                         catalogo.append(evento_existente)
+                        try:
+                            ruta_asoc = str(evento_existente[18]).strip()
+                            ubic_ext = evento_existente[19] if len(evento_existente) > 19 else ""
+                            insertado_rep = False
+                            for j in range(1, len(eventos_reporte)):
+                                if str(eventos_reporte[j][1]).strip() == ruta_asoc:
+                                    fila_ext = [
+                                        eventos_reporte[j][0],
+                                        evento_existente[18],
+                                        evento_existente[17],
+                                        evento_existente[15],
+                                        evento_existente[9],
+                                        evento_existente[7],
+                                        evento_existente[8],
+                                        ubic_ext,
+                                    ]
+                                    eventos_reporte.insert(j + 1, fila_ext)
+                                    insertado_rep = True
+                                    break
+                            if not insertado_rep:
+                                num_hora = int(ruta_asoc[-10:-4])
+                                for j in range(1, len(eventos_reporte)):
+                                    otro_txt = str(eventos_reporte[j][1]).strip()
+                                    if len(otro_txt) >= 10 and otro_txt[-10:-4].isdigit():
+                                        otro_num = int(otro_txt[-10:-4])
+                                        if otro_num > num_hora:
+                                            orden_prev = eventos_reporte[j - 1][0] if j > 1 else 1
+                                            fila_ext = [
+                                                orden_prev,
+                                                evento_existente[18],
+                                                evento_existente[17],
+                                                evento_existente[15],
+                                                evento_existente[9],
+                                                evento_existente[7],
+                                                evento_existente[8],
+                                                ubic_ext,
+                                            ]
+                                            eventos_reporte.insert(j, fila_ext)
+                                            insertado_rep = True
+                                            break
+                            if not insertado_rep:
+                                orden_ult = eventos_reporte[-1][0] if len(eventos_reporte) > 1 else 1
+                                eventos_reporte.append([
+                                    orden_ult,
+                                    evento_existente[18],
+                                    evento_existente[17],
+                                    evento_existente[15],
+                                    evento_existente[9],
+                                    evento_existente[7],
+                                    evento_existente[8],
+                                    ubic_ext,
+                                ])
+                        except Exception:
+                            pass
                 catalogo = ordenar_y_eliminar_duplicados(catalogo, 0)
+    try:
+        catalogo, eventos_reporte, _ = sincronizar_otras_redes_dia(
+            directorios,
+            catalogo,
+            eventos_reporte,
+            eventos,
+        )
+    except Exception:
+        pass
     indice_responsables=[0,0,0]
     cont_sismo=[0,0,0]
     cont_indefinido=[0,0,0]
@@ -426,7 +509,7 @@ def cargar_dia(directorios):
             cont_ruido[indice_hora]=cont_ruido[indice_hora]+1
     responsables=lectura_archivo(directorios['archivo_tiempos'])
     aux=['','','']
-    if responsables==None:
+    if not responsables or len(responsables) < 3:
         aux[0]=['RSA','']
         aux[1]=['RSA','']
         aux[2]=['RSA','']
@@ -464,116 +547,528 @@ def cargar_dia(directorios):
 def insertar_evento_otras_redes(catalogo,indice_catalogo,eventos_reporte,red_,magnitud_,tipo_magnitud,texto,texto2,evento_reporte_escogido,indice,indice_local):
     #red_:          cmbx_red.currentIndex
     #magnitud_:     cmbx_tipo_mag.currentIndex
-    #tipo_magnitud:     cmbx_tipo_mag.currentText
-    #texto:         textEdit.toPlainText   
-    #print("\nEvento escogido:\n",evento_reporte_escogido)
+    #tipo_magnitud: cmbx_tipo_mag.currentText
+    #texto:         textEdit.toPlainText
     eventos_temp=[" "," "," "," "," "," "," "," "]
     catalogo_temp=[" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-    if(red_==0):
-            QMessageBox.information(None, "Error", '¡Falta la Red!')
-            return
-    if(magnitud_==0):
-            QMessageBox.information(None, "Error", '¡Falta tipo de sismo!')
-            return        
-    if(texto==""):
-            QMessageBox.information(None, "Error", '¡Falta información del sismo!')
-            return  
-    lectura=extraccion_dato(texto,"\n")
-    if(red_==1):#Cuando la red es IGEPN
+    if red_ == 0:
+        QMessageBox.information(None, "Error", '¡Falta la Red!')
+        return catalogo, eventos_reporte
+    if texto == "":
+        QMessageBox.information(None, "Error", '¡Falta información del sismo!')
+        return catalogo, eventos_reporte
+    if red_ != 1 and magnitud_ == 0:
+        QMessageBox.information(None, "Error", '¡Falta tipo de magnitud!')
+        return catalogo, eventos_reporte
+
+    lectura = extraccion_dato(texto, "\n")
+    es_formato_igepn = 'Tiempo UTC:' in lectura
+
+    if red_ == 1 or (red_ == 3 and es_formato_igepn):  # Cuando la red es IGEPN (o formato IGEPN en Otras redes)
         try:
+            sufijo_id = "01" if red_ == 1 else "03"
+            nombre_fuente = "IGEPN" if red_ == 1 else "Otras redes"
             indice_utc = lectura.index('Tiempo UTC:')
-            fecha_utc = lectura[indice_utc + 1]
+            fecha_utc = lectura[indice_utc + 1].strip()
             anio, mes, dia = fecha_utc[:10].split('-')
             hora, minuto, segundo = fecha_utc[11:].split(':')
-            valor_formateado = f"{anio}{mes}{dia}{hora}{minuto}01"
-            catalogo_temp[0]=valor_formateado#ID
-            catalogo_temp[1]=str(int(anio))#año
-            catalogo_temp[2]=str(int(mes))#mes
-            catalogo_temp[3]=str(int(dia))#dia
-            catalogo_temp[4]=str(int(hora))#hora
-            catalogo_temp[5]=str(int(minuto))#min
-            catalogo_temp[6]=str(int(segundo))#seg
+            valor_formateado = f"{anio}{mes}{dia}{hora}{minuto}{sufijo_id}"
+            catalogo_temp[0] = valor_formateado     # ID
+            catalogo_temp[1] = str(int(anio))       # año
+            catalogo_temp[2] = str(int(mes))        # mes
+            catalogo_temp[3] = str(int(dia))        # dia
+            catalogo_temp[4] = str(int(hora))       # hora
+            catalogo_temp[5] = str(int(minuto))     # min
+            catalogo_temp[6] = str(int(float(segundo)))  # seg
             indice_localizacion = lectura.index('Localización:')
-            localizacion=lectura[indice_localizacion + 1]
+            localizacion = lectura[indice_localizacion + 1]
             partes = localizacion.split()
             latitud = float(partes[0].replace('°', '')) * (-1 if partes[1] == 'S' else 1)
             longitud = float(partes[2].replace('°', '')) * (-1 if partes[3] == 'W' else 1)
-            catalogo_temp[7]=str(longitud)#Longitud
-            catalogo_temp[8]=str(latitud)#Latitud
+            catalogo_temp[7] = str(latitud)         # Latitud (IDX_LATITUD = 7)
+            catalogo_temp[8] = str(longitud)        # Longitud (IDX_LONGITUD = 8)
             indice_profundidad = lectura.index('Profundidad:')
-            profundidad_str=lectura[indice_profundidad + 1]
-            profundidad = float(profundidad_str.replace(' km', ''))
-            catalogo_temp[9]=str(profundidad)
+            profundidad_str = lectura[indice_profundidad + 1]
+            profundidad = float(profundidad_str.replace(' km', '').replace('km', '').strip())
+            catalogo_temp[9] = str(profundidad)
             indice_magnitud = lectura.index('Magnitud:')
-            magnitud_str=lectura[indice_magnitud + 1]
-            valor_magnitud, tipo_magnitud = magnitud_str.split()
-            valor_magnitud = float(valor_magnitud)
-            catalogo_temp[15]=str(valor_magnitud)   #Magnitud        
-            catalogo_temp[16]=tipo_magnitud         #Tipo de Magnitud
-            catalogo_temp[17]="IGEPN"               #Fuente
-            catalogo_temp[18]=evento_reporte_escogido[0][1]#Ruta
-            if catalogo_temp[18][0]=="\n":
-                catalogo_temp[18]=catalogo_temp[18][1:-1]
-            if catalogo_temp[18][-1]=="\n":
-                catalogo_temp[18]=catalogo_temp[18][0:-2]
-            catalogo_temp[19]=ubicacion(longitud,latitud)#Ubicacion
-            eventos_temp[0]=indice_local
-            eventos_temp[1]=anio+"/"+mes+"/"+dia+"_"+hora+":"+minuto+":"+segundo#Fecha; Hora (UTC)
-            eventos_temp[2]="IGEPN"#Evento
-            eventos_temp[3]=str(valor_magnitud)#Magnitud
-            eventos_temp[4]=str(profundidad)#Profundidad
-            eventos_temp[5]=str(longitud)#Longitud
-            eventos_temp[6]=str(latitud)#Latitud
-            eventos_temp[7]=catalogo_temp[19]#Ubicacion
+            magnitud_str = lectura[indice_magnitud + 1].strip()
+            partes_mag = magnitud_str.split()
+            valor_magnitud = float(partes_mag[0])
+            tipo_mag_final = partes_mag[1] if len(partes_mag) > 1 else (tipo_magnitud.strip() or "M")
+            if magnitud_ != 0 and tipo_magnitud.strip():
+                tipo_mag_final = tipo_magnitud.strip()
+            catalogo_temp[15] = str(valor_magnitud)                 # Magnitud
+            catalogo_temp[16] = tipo_mag_final                      # Tipo de Magnitud
+            catalogo_temp[17] = nombre_fuente                       # Fuente
+            catalogo_temp[18] = str(evento_reporte_escogido[0][1]).strip()  # Ruta (.sis)
+            catalogo_temp[19] = ubicacion(latitud, longitud)        # Ubicacion
+            eventos_temp[0] = indice_local
+            eventos_temp[1] = anio + "/" + mes + "/" + dia + "_" + hora + ":" + minuto + ":" + segundo
+            eventos_temp[2] = nombre_fuente                         # Evento
+            eventos_temp[3] = str(valor_magnitud)                   # Magnitud
+            eventos_temp[4] = str(profundidad)                      # Profundidad
+            eventos_temp[5] = str(latitud)                          # Latitud
+            eventos_temp[6] = str(longitud)                         # Longitud
+            eventos_temp[7] = catalogo_temp[19]                     # Ubicacion
         except Exception as e:
-            QMessageBox.information(None, e, '¡Revise la información del sismo en la página de la IGEPN!')
-            return
+            QMessageBox.information(None, str(e), '¡Revise la información del sismo en la página de la IGEPN!')
+            return catalogo, eventos_reporte
 
-    if(red_==2):#Cuando la red es USGS
-            if(texto==""):
-                QMessageBox.information(None, "Error", '¡Falta información del sismo!\nRevise la ubicación del sismo en la página de la USGS!')
-                return 
-            for i in range(0,len(lectura)):
-                if(lectura[i]=='Time'):
-                    break
-            if(i==len(lectura)):
+    elif red_ in (2, 3):  # Cuando la red es USGS (o formato USGS en Otras redes)
+        try:
+            sufijo_id = "02" if red_ == 2 else "03"
+            nombre_fuente = "USGS" if red_ == 2 else "Otras redes"
+            if 'Time' not in lectura:
                 QMessageBox.information(None, "Error", '¡¡Revise la información del sismo en la página de la USGS!')
-                return 
-            tiempo=lectura[1]
-            localizacion=lectura[2]
-            profundidad=lectura[3]  
-            #ruta=extraccion_dato(lectura[0],"-")
-            magnitud=extraccion_dato(lectura[0]," ")
-            catalogo_temp[0]=tiempo[0:4]+tiempo[5:7]+tiempo[8:10]+tiempo[11:13]+tiempo[14:16]+"02"#ID
-            catalogo_temp[1]=str(int(tiempo[0:4]))#año
-            catalogo_temp[2]=str(int(tiempo[5:7]))#mes
-            catalogo_temp[3]=str(int(tiempo[8:10]))#dia
-            catalogo_temp[4]=str(int(tiempo[11:13]))#hhora
-            catalogo_temp[5]=str(int(tiempo[14:16]))#min
-            catalogo_temp[6]=str(int(tiempo[17:19]))#seg
-            localizacion=extraccion_dato(localizacion," ")
-            catalogo_temp[7]=str(-1*(float(localizacion[0][0:len(localizacion[0])-2])))#Longitud
-            catalogo_temp[8]=str(-1*(float(localizacion[1][0:len(localizacion[1])-2])))#Latitud
-            profundidad=extraccion_dato(profundidad," ")
-            catalogo_temp[9]=str(float(profundidad[0]))
-            catalogo_temp[15]=str(float(magnitud[1]))#Magnitud
-            catalogo_temp[16]=tipo_magnitud #Tipo de Magnitud
-            catalogo_temp[17]="USGS"#Fuente
-            catalogo_temp[18]=evento_reporte_escogido[0][1]#Ruta
-            catalogo_temp[19]=ubicacion(catalogo_temp[7],catalogo_temp[8])#Ubicacion
-            eventos_temp[0]=indice_local
-            eventos_temp[1]=tiempo[0:4]+"\\"+tiempo[5:7]+"\\"+tiempo[8:10]+"_"+tiempo[11:13]+":"+tiempo[14:16]#Fecha; Hora (UTC)
-            eventos_temp[2]="USGS"#Evento
-            eventos_temp[3]=catalogo_temp[15]#Magnitud
-            eventos_temp[4]=catalogo_temp[9]#Profundidad
-            eventos_temp[5]=catalogo_temp[7]#Longitud
-            eventos_temp[6]=catalogo_temp[8]#Latitud
-            eventos_temp[7]=catalogo_temp[19]#Ubicacion
-    catalogo.insert(indice_catalogo+1, catalogo_temp)
-    ordenar_y_eliminar_duplicados(catalogo,0)
-    eventos_reporte.insert(indice+1, eventos_temp)    
-    #evento_reporte_escogido.append(eventos_temp)
-    return catalogo,eventos_reporte
+                return catalogo, eventos_reporte
+            tiempo = lectura[1].strip()
+            localizacion = lectura[2].strip()
+            profundidad = lectura[3].strip()
+            magnitud = extraccion_dato(lectura[0], " ")
+            catalogo_temp[0] = tiempo[0:4] + tiempo[5:7] + tiempo[8:10] + tiempo[11:13] + tiempo[14:16] + sufijo_id
+            catalogo_temp[1] = str(int(tiempo[0:4]))    # año
+            catalogo_temp[2] = str(int(tiempo[5:7]))    # mes
+            catalogo_temp[3] = str(int(tiempo[8:10]))   # dia
+            catalogo_temp[4] = str(int(tiempo[11:13]))  # hora
+            catalogo_temp[5] = str(int(tiempo[14:16]))  # min
+            catalogo_temp[6] = str(int(tiempo[17:19]))  # seg
+            partes_loc = extraccion_dato(localizacion, " ")
+            str_lat = partes_loc[0]
+            str_lon = partes_loc[1]
+            signo_lat = -1 if str_lat.upper().endswith('S') else 1
+            signo_lon = -1 if str_lon.upper().endswith('W') else 1
+            val_lat = signo_lat * float(str_lat[:-2])
+            val_lon = signo_lon * float(str_lon[:-2])
+            catalogo_temp[7] = str(val_lat)             # Latitud (IDX_LATITUD = 7)
+            catalogo_temp[8] = str(val_lon)             # Longitud (IDX_LONGITUD = 8)
+            profundidad_partes = extraccion_dato(profundidad, " ")
+            catalogo_temp[9] = str(float(profundidad_partes[0]))
+            catalogo_temp[15] = str(float(magnitud[1]))  # Magnitud
+            catalogo_temp[16] = tipo_magnitud.strip()    # Tipo de Magnitud
+            catalogo_temp[17] = nombre_fuente            # Fuente
+            catalogo_temp[18] = str(evento_reporte_escogido[0][1]).strip()  # Ruta (.sis)
+            catalogo_temp[19] = ubicacion(val_lat, val_lon)  # Ubicacion
+            eventos_temp[0] = indice_local
+            eventos_temp[1] = tiempo[0:4] + "/" + tiempo[5:7] + "/" + tiempo[8:10] + "_" + tiempo[11:13] + ":" + tiempo[14:16]
+            eventos_temp[2] = nombre_fuente
+            eventos_temp[3] = catalogo_temp[15]          # Magnitud
+            eventos_temp[4] = catalogo_temp[9]           # Profundidad
+            eventos_temp[5] = catalogo_temp[7]           # Latitud
+            eventos_temp[6] = catalogo_temp[8]           # Longitud
+            eventos_temp[7] = catalogo_temp[19]          # Ubicacion
+        except Exception as e:
+            QMessageBox.information(None, str(e), '¡¡Revise la información del sismo en la página de la USGS!')
+            return catalogo, eventos_reporte
+
+    # Si el evento cuenta con localización RSA (..00), alinear los primeros 12 dígitos del Id
+    # manteniendo el sufijo de la otra red (01 = IGEPN, 02 = USGS, 03 = Otras redes)
+    nombre_sis_asoc = str(catalogo_temp[18]).strip()
+    sufijo_red = str(catalogo_temp[0]).strip()[-2:]
+    for f in catalogo:
+        if (
+            f and len(f) > 18 and f[0] != 'Id'
+            and str(f[18]).strip() == nombre_sis_asoc
+            and (str(f[17]).strip() == 'RSA' or str(f[0]).strip().endswith('00'))
+            and len(str(f[0]).strip()) >= 12
+        ):
+            catalogo_temp[0] = str(f[0]).strip()[:12] + sufijo_red
+            break
+
+    # Si ya existía un registro para la misma red y evento, actualizarlo sin duplicar
+    catalogo = [
+        f for f in catalogo
+        if not (
+            f and len(f) > 18 and f[0] != 'Id'
+            and str(f[17]).strip() == str(catalogo_temp[17]).strip()
+            and str(f[18]).strip() == str(catalogo_temp[18]).strip()
+        )
+    ]
+    eventos_reporte = [
+        f for f in eventos_reporte
+        if not (
+            f and len(f) > 2 and str(f[0]).strip() == str(indice_local).strip()
+            and str(f[2]).strip() == str(eventos_temp[2]).strip()
+        )
+    ]
+
+    pos_cat = min(max(1, indice_catalogo + 1), len(catalogo))
+    catalogo.insert(pos_cat, catalogo_temp)
+    catalogo = ordenar_y_eliminar_duplicados(catalogo, 0)
+
+    pos_rep = min(max(1, indice + 1), len(eventos_reporte))
+    eventos_reporte.insert(pos_rep, eventos_temp)
+    return catalogo, eventos_reporte
+
+
+def extraer_datetime_evento_rsa(nombre_sis, catalogo=None):
+    """
+    Obtiene el datetime UTC de un evento de la RSA priorizando la hora origen
+    del catálogo (_cat.csv) si existe solución RSA, o el nombre del archivo .sis
+    (AAMMDD_hhmmss.sis o AAAAMMDD_hhmmss.sis) en caso contrario (ej. FF o FC).
+    """
+    nombre_limpio = Path(str(nombre_sis).strip()).name
+    if catalogo:
+        for fila in catalogo:
+            if (
+                fila and len(fila) > 18 and fila[0] != 'Id'
+                and Path(str(fila[18]).strip()).name == nombre_limpio
+                and (str(fila[17]).strip() == 'RSA' or str(fila[0]).strip().endswith('00'))
+            ):
+                try:
+                    return datetime(
+                        int(fila[1]), int(fila[2]), int(fila[3]),
+                        int(fila[4]), int(fila[5]), int(float(fila[6]))
+                    )
+                except (ValueError, TypeError):
+                    pass
+
+    base = Path(nombre_limpio).stem.strip()
+    for fmt in ("%y%m%d_%H%M%S", "%Y%m%d_%H%M%S", "%y%m%d%H%M%S", "%Y%m%d%H%M%S"):
+        try:
+            return datetime.strptime(base, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _normalizar_tipo_magnitud_rsa(tipo_raw):
+    """Normaliza la etiqueta de tipo de magnitud al conjunto estándar de la RSA."""
+    t = str(tipo_raw or "").strip()
+    if not t:
+        return "M"
+    t_low = t.lower()
+    if t_low.startswith("ml"):
+        return "MLv"
+    if t_low.startswith("mw"):
+        return "Mw"
+    if t_low.startswith("mb"):
+        return "Mb"
+    if t_low.startswith("md"):
+        return "Md"
+    if t_low.startswith("mc"):
+        return "Mc"
+    if t in ("M", "MLv", "Md", "Mc", "Mw", "Mb"):
+        return t
+    return "M"
+
+
+def consultar_sismos_igepn_web(timeout=6):
+    """
+    Consulta la tabla HTML de Últimos Sismos del IGEPN
+    (https://www.igepn.edu.ec/portal/sismos/index2.html) y devuelve una lista
+    de diccionarios normalizados con fecha/hora UTC, coordenadas, magnitud y
+    texto formateado compatible con insertar_evento_otras_redes.
+    """
+    import urllib.request
+    urls = [
+        "https://www.igepn.edu.ec/portal/sismos/index2.html",
+        "https://www.igepn.edu.ec/portal/eventos/informes-ultimos-sismosC.html",
+    ]
+    resultados = []
+    for url in urls:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+            filas_tr = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S | re.I)
+            for tr in filas_tr:
+                celdas = [
+                    re.sub(r"<[^>]+>", "", td).strip()
+                    for td in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S | re.I)
+                ]
+                if len(celdas) < 12:
+                    continue
+                try:
+                    mag_val = float(celdas[2].replace(",", "."))
+                    tipo_mag = _normalizar_tipo_magnitud_rsa(celdas[3] or "MLv")
+                    lat_raw = celdas[5].strip()
+                    lon_raw = celdas[6].strip()
+                    lat_partes = lat_raw.replace("°", " ").split()
+                    lon_partes = lon_raw.replace("°", " ").split()
+                    lat_val = float(lat_partes[0]) * (-1 if len(lat_partes) > 1 and lat_partes[1].upper().startswith("S") else 1)
+                    lon_val = float(lon_partes[0]) * (-1 if len(lon_partes) > 1 and lon_partes[1].upper().startswith("W") else 1)
+                    prof_val = float(celdas[7].lower().replace("km", "").strip())
+                    fecha_utc_str = celdas[11].strip()
+                    dt_utc = datetime.strptime(fecha_utc_str, "%Y-%m-%d %H:%M:%S")
+                    hemi_lat = "S" if lat_val < 0 else "N"
+                    hemi_lon = "W" if lon_val < 0 else "E"
+                    texto_igepn = (
+                        f"Tiempo UTC:\n{fecha_utc_str}\n"
+                        f"Localización:\n{abs(lat_val):.3f}° {hemi_lat} {abs(lon_val):.3f}° {hemi_lon}\n"
+                        f"Profundidad:\n{prof_val:.1f} km\n"
+                        f"Magnitud:\n{mag_val} {tipo_mag}"
+                    )
+                    resultados.append({
+                        "fuente": "IGEPN",
+                        "sufijo_id": "01",
+                        "dt_utc": dt_utc,
+                        "latitud": round(lat_val, 4),
+                        "longitud": round(lon_val, 4),
+                        "profundidad": round(prof_val, 2),
+                        "magnitud": round(mag_val, 2),
+                        "tipo_mag": tipo_mag,
+                        "texto_formateado": texto_igepn,
+                    })
+                except (ValueError, IndexError):
+                    continue
+            if resultados:
+                break
+        except Exception:
+            continue
+    return resultados
+
+
+def consultar_sismos_usgs_api(dt_inicio_utc, dt_fin_utc, timeout=6):
+    """
+    Consulta la API FDSN GeoJSON de la USGS en el rango [dt_inicio_utc, dt_fin_utc]
+    para la región del Ecuador y alrededores, devolviendo diccionarios normalizados.
+    """
+    import urllib.request
+    import json
+    resultados = []
+    try:
+        t_ini = dt_inicio_utc.strftime("%Y-%m-%dT%H:%M:%S")
+        t_fin = dt_fin_utc.strftime("%Y-%m-%dT%H:%M:%S")
+        url = (
+            "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson"
+            f"&starttime={t_ini}&endtime={t_fin}"
+            "&minlatitude=-12.0&maxlatitude=6.0&minlongitude=-93.0&maxlongitude=-70.0"
+        )
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            datos = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        for feat in datos.get("features", []):
+            try:
+                props = feat.get("properties", {})
+                geom = feat.get("geometry", {})
+                coords = geom.get("coordinates", [])
+                if len(coords) < 3 or props.get("mag") is None or props.get("time") is None:
+                    continue
+                lon_val = float(coords[0])
+                lat_val = float(coords[1])
+                prof_val = float(coords[2])
+                mag_val = float(props["mag"])
+                tipo_mag = _normalizar_tipo_magnitud_rsa(props.get("magType") or "M")
+                dt_utc = datetime.utcfromtimestamp(float(props["time"]) / 1000.0)
+                hemi_lat = "S" if lat_val < 0 else "N"
+                hemi_lon = "W" if lon_val < 0 else "E"
+                fecha_utc_str = dt_utc.strftime("%Y-%m-%d %H:%M:%S")
+                lugar_usgs = str(props.get("place") or "Ecuador")
+                texto_usgs = (
+                    f"M {mag_val} - {lugar_usgs}\n"
+                    f"{fecha_utc_str} (UTC)\n"
+                    f"{abs(lat_val):.3f}°{hemi_lat} {abs(lon_val):.3f}°{hemi_lon}\n"
+                    f"{prof_val:.1f} km depth\n"
+                    "Time"
+                )
+                resultados.append({
+                    "fuente": "USGS",
+                    "sufijo_id": "02",
+                    "dt_utc": dt_utc,
+                    "latitud": round(lat_val, 4),
+                    "longitud": round(lon_val, 4),
+                    "profundidad": round(prof_val, 2),
+                    "magnitud": round(mag_val, 2),
+                    "tipo_mag": tipo_mag,
+                    "texto_formateado": texto_usgs,
+                })
+            except (ValueError, TypeError, KeyError):
+                continue
+    except Exception:
+        pass
+    return resultados
+
+
+def buscar_evento_otra_red_en_linea(nombre_sis, catalogo, red_nombre, tolerancia_seg=180):
+    """
+    Busca en línea (web IGEPN o API USGS) un evento particular de la RSA
+    identificado por 'nombre_sis' dentro de una ventana de ±tolerancia_seg.
+    Retorna el diccionario con los datos y 'texto_formateado', o None si no hay coincidencia.
+    """
+    dt_rsa = extraer_datetime_evento_rsa(nombre_sis, catalogo)
+    if dt_rsa is None:
+        return None
+
+    red_norm = str(red_nombre).strip().upper()
+    candidatos = []
+    if red_norm == "IGEPN":
+        candidatos = consultar_sismos_igepn_web(timeout=6)
+    elif red_norm == "USGS":
+        candidatos = consultar_sismos_usgs_api(
+            dt_rsa - timedelta(seconds=tolerancia_seg + 60),
+            dt_rsa + timedelta(seconds=tolerancia_seg + 60),
+            timeout=6,
+        )
+
+    mejor = None
+    mejor_delta = None
+    for cand in candidatos:
+        delta = abs((cand["dt_utc"] - dt_rsa).total_seconds())
+        if delta <= tolerancia_seg and (mejor_delta is None or delta < mejor_delta):
+            mejor_delta = delta
+            mejor = cand
+    return mejor
+
+
+def _construir_filas_otra_red_para_evento(sismo_ext, nombre_sis, indice_local, catalogo):
+    """
+    Construye la tupla (fila_catalogo_20_col, fila_reporte_8_col) para un sismo externo
+    asociado al evento RSA 'nombre_sis', respetando el prefijo del ID del catálogo RSA
+    cuando el evento tiene localización RSA.
+    """
+    dt_utc = sismo_ext["dt_utc"]
+    sufijo = sismo_ext["sufijo_id"]
+    fuente = sismo_ext["fuente"]
+    nombre_limpio = str(nombre_sis).strip()
+
+    prefijo_id = dt_utc.strftime("%Y%m%d%H%M")
+    if catalogo:
+        for f in catalogo:
+            if (
+                f and len(f) > 18 and f[0] != "Id"
+                and str(f[18]).strip() == nombre_limpio
+                and (str(f[17]).strip() == "RSA" or str(f[0]).strip().endswith("00"))
+                and len(str(f[0]).strip()) >= 12
+            ):
+                prefijo_id = str(f[0]).strip()[:12]
+                break
+
+    id_completo = f"{prefijo_id}{sufijo}"
+    lat_val = float(sismo_ext["latitud"])
+    lon_val = float(sismo_ext["longitud"])
+    prof_val = float(sismo_ext["profundidad"])
+    mag_val = float(sismo_ext["magnitud"])
+    tipo_mag = str(sismo_ext["tipo_mag"]).strip() or "M"
+    ubic_str = ubicacion(lat_val, lon_val)
+
+    fila_cat = [
+        id_completo,
+        str(dt_utc.year),
+        str(dt_utc.month),
+        str(dt_utc.day),
+        str(dt_utc.hour),
+        str(dt_utc.minute),
+        str(dt_utc.second),
+        str(lat_val),
+        str(lon_val),
+        str(prof_val),
+        " ", " ", " ", " ", " ",
+        str(mag_val),
+        tipo_mag,
+        fuente,
+        nombre_limpio,
+        ubic_str,
+    ]
+    if fuente == "IGEPN":
+        fecha_rep = dt_utc.strftime("%Y/%m/%d_%H:%M:%S")
+    else:
+        fecha_rep = dt_utc.strftime("%Y/%m/%d_%H:%M")
+
+    fila_rep = [
+        indice_local,
+        fecha_rep,
+        fuente,
+        str(mag_val),
+        str(prof_val),
+        str(lat_val),
+        str(lon_val),
+        ubic_str,
+    ]
+    return fila_cat, fila_rep
+
+
+def sincronizar_otras_redes_dia(directorios, catalogo, eventos_reporte, eventos, tolerancia_seg=180):
+    """
+    Sincroniza de forma automática y transparente los eventos del día de la RSA
+    ('SISMO', 'FF', 'FC', 'TELESISMO', 'INDEFINIDO') contra la tabla web del IGEPN (01)
+    y la API de la USGS (02).
+    Si no hay conexión a internet o no hay coincidencias nuevas, retorna sin error.
+
+    Retorna:
+        (catalogo, eventos_reporte, hubo_cambios)
+    """
+    if not eventos:
+        return catalogo, eventos_reporte, False
+
+    eventos_candidatos = []
+    for ev in eventos:
+        if not ev or len(ev) < 3:
+            continue
+        tipo_ev = str(ev[2]).strip()
+        if tipo_ev in ("SISMO", "FF", "FC", "TELESISMO", "INDEFINIDO"):
+            dt_ev = extraer_datetime_evento_rsa(ev[1], catalogo)
+            if dt_ev is not None:
+                eventos_candidatos.append((ev[0], str(ev[1]).strip(), tipo_ev, dt_ev))
+
+    if not eventos_candidatos:
+        return catalogo, eventos_reporte, False
+
+    fechas_dt = [x[3] for x in eventos_candidatos]
+    dt_min = min(fechas_dt) - timedelta(seconds=tolerancia_seg + 60)
+    dt_max = max(fechas_dt) + timedelta(seconds=tolerancia_seg + 60)
+
+    sismos_igepn = consultar_sismos_igepn_web(timeout=5)
+    sismos_usgs = consultar_sismos_usgs_api(dt_min, dt_max, timeout=5)
+    if not sismos_igepn and not sismos_usgs:
+        return catalogo, eventos_reporte, False
+
+    hubo_cambios = False
+    for indice_local, nombre_sis, _tipo_ev, dt_ev in eventos_candidatos:
+        for lista_red, nombre_fuente in ((sismos_igepn, "IGEPN"), (sismos_usgs, "USGS")):
+            if not lista_red:
+                continue
+            ya_existe = any(
+                f and len(f) > 18 and f[0] != "Id"
+                and str(f[17]).strip() == nombre_fuente
+                and str(f[18]).strip() == nombre_sis
+                for f in catalogo
+            )
+            if ya_existe:
+                continue
+
+            mejor = None
+            mejor_delta = None
+            for cand in lista_red:
+                delta = abs((cand["dt_utc"] - dt_ev).total_seconds())
+                if delta <= tolerancia_seg and (mejor_delta is None or delta < mejor_delta):
+                    mejor_delta = delta
+                    mejor = cand
+
+            if mejor is not None:
+                fila_cat, fila_rep = _construir_filas_otra_red_para_evento(
+                    mejor, nombre_sis, indice_local, catalogo
+                )
+                catalogo.append(fila_cat)
+                ya_en_rep = any(
+                    r and len(r) > 2
+                    and str(r[0]).strip() == str(indice_local).strip()
+                    and str(r[2]).strip() == nombre_fuente
+                    for r in eventos_reporte
+                )
+                if not ya_en_rep:
+                    pos_insercion = len(eventos_reporte)
+                    for idx_r, r in enumerate(eventos_reporte):
+                        if r and str(r[0]).strip() == str(indice_local).strip():
+                            pos_insercion = idx_r + 1
+                    eventos_reporte.insert(pos_insercion, fila_rep)
+                hubo_cambios = True
+
+    if hubo_cambios:
+        catalogo = ordenar_y_eliminar_duplicados(catalogo, 0)
+        if isinstance(directorios, dict):
+            if directorios.get("archivo_catalogo"):
+                escritura_archivo(directorios["archivo_catalogo"], catalogo)
+            if directorios.get("archivo_reporte"):
+                escritura_archivo(directorios["archivo_reporte"], eventos_reporte)
+
+    return catalogo, eventos_reporte, hubo_cambios
 
 
 def guardar_seniales_csv(archivo_csv, seniales_ascii, stats):

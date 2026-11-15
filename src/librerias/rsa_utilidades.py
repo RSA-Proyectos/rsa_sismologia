@@ -24,11 +24,13 @@ from obspy import read
 
 import sys
 import os
+import csv
+import re
 import xml.etree.ElementTree as ET
 from metodos_gestion import obtener_directorios,obtencion_hora,parametros_estaciones
-from rsa_io import conversion_mseed,lectura_archivo,escritura_archivo
+from rsa_io import conversion_mseed,lectura_archivo,escritura_archivo,lectura_resumen
 from PyQt5.QtCore import QDate
-from datetime import timedelta,date
+from datetime import datetime, timedelta, date
 import calendar
 
 IDX_INDICE,IDX_ANIO,IDX_MES,IDX_DIA,IDX_HORA,IDX_MINUTO,IDX_SEGUNDO,\
@@ -547,85 +549,89 @@ def agregar_evento(root,sismo,estaciones_sismo):
     return root
         
 
-def obtener_datos_reporte(fecha_ini, fecha_fin, directorio_trabajo, mapa_="Ecuador"):
+def obtener_datos_reporte(fecha_ini, fecha_fin, directorio_trabajo, mapa_="Ecuador", tipo_forzado=None):
     """
     Retorna:
         - periodo_reporte (str): Texto descriptivo del período
-        - directorio_reporte (str): Ruta donde se guardará el reporte
-        - tipo (int): Tipo de período deducido
-        - mes (str): Nombre del mes (si aplica)
-        - anio (str): Año como texto
+        - directorio_reporte (str): Ruta base unificada donde se guardará el reporte
+        - archivo_reporte (str): Prefijo de ruta completo incluyendo región y nombre base
+
+    Estructura unificada de directorios bajo `directorio_trabajo` (DIA):
+        - Tipo 0 (Anual)   : DIA/<AAAA>/reportes/<Región>/<AAAA>_*
+        - Tipo 1 (Mensual) : DIA/<AAAA>/<AAAA_MM>/reporte/<Región>/<Mes> del <AAAA>_*
+        - Tipo 2 (Semanal) : DIA/<AAAA_fin>/reportes/semanal/semana<WW>/<Región>/Semana <WW>_*
+        - Tipo 3 (Período) : DIA/<AAAA_fin>/reportes/periodos/<AAAA_MM_DD_ini>_<AAAA_MM_DD_fin>/<Región>/<dd_mm_aaaa a dd_mm_aaaa>_*
     """
 
     def dias_mes(anio, mes):
         """Retorna el último día del mes, considerando años bisiestos."""
         return calendar.monthrange(anio, mes)[1]
 
-    def deducir_tipo(fecha_ini, fecha_fin):
-        """Deducción automática del tipo de reporte."""
-        if fecha_ini > fecha_fin:
-            fecha_ini, fecha_fin = fecha_fin, fecha_ini
+    def deducir_tipo(f_ini, f_fin):
+        """Deducción automática del tipo de reporte cuando no se especifica `tipo_forzado`."""
+        if f_ini > f_fin:
+            f_ini, f_fin = f_fin, f_ini
 
         # Año completo
-        if (fecha_ini.month, fecha_ini.day) == (1, 1) and (fecha_fin.month, fecha_fin.day) == (12, 31) and fecha_ini.year == fecha_fin.year:
+        if (f_ini.month, f_ini.day) == (1, 1) and (f_fin.month, f_fin.day) == (12, 31) and f_ini.year == f_fin.year:
             return 0
 
         # Mes completo
-        ultimo_dia = dias_mes(fecha_ini.year, fecha_ini.month)
-        if (fecha_ini.day == 1 and
-            fecha_ini.year == fecha_fin.year and
-            fecha_ini.month == fecha_fin.month and
-            fecha_fin.day == ultimo_dia):
+        ultimo_dia = dias_mes(f_ini.year, f_ini.month)
+        if (f_ini.day == 1 and
+            f_ini.year == f_fin.year and
+            f_ini.month == f_fin.month and
+            f_fin.day == ultimo_dia):
             return 1
 
         # Semana completa (lunes a domingo)
-        delta = fecha_fin - fecha_ini
-        if delta.days == 6 and fecha_ini.weekday() == 0 and fecha_fin.weekday() == 6:
+        delta = f_fin - f_ini
+        if delta.days == 6 and f_ini.weekday() == 0 and f_fin.weekday() == 6:
             return 2
 
-        return 3  # Otro período
+        return 3  # Rango de fechas (Período inicio - fin)
+
     # --- Inicialización ---
+    fecha_ini = fecha_ini.date() if isinstance(fecha_ini, datetime) else fecha_ini
+    fecha_fin = fecha_fin.date() if isinstance(fecha_fin, datetime) else fecha_fin
+    if fecha_ini > fecha_fin:
+        fecha_ini, fecha_fin = fecha_fin, fecha_ini
 
     meses_es = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
-    tipo = deducir_tipo(fecha_ini, fecha_fin)
+                'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+    tipo = int(tipo_forzado) if tipo_forzado is not None else deducir_tipo(fecha_ini, fecha_fin)
     anio = str(fecha_ini.year)
+    anio_fin = str(fecha_fin.year)
     mes = meses_es[fecha_ini.month - 1]  # Nombre del mes
     semana = f"{fecha_ini.isocalendar()[1]:02d}"  # Número de semana ISO
-    fecha_ = QDate(fecha_ini.year, fecha_ini.month, fecha_ini.day)
+    fecha_q_ini = QDate(fecha_ini.year, fecha_ini.month, fecha_ini.day)
+    fecha_q_fin = QDate(fecha_fin.year, fecha_fin.month, fecha_fin.day)
+    base_trabajo = str(directorio_trabajo).rstrip('/\\')
 
-    # --- Generación del período y ruta según tipo ---
+    # --- Generación del período y ruta unificada según tipo ---
     if tipo == 0:
         periodo_reporte = f"Período: {anio}"
-        directorio_reporte = f"{directorio_trabajo}/{anio}/reportes/"
+        directorio_reporte = f"{base_trabajo}/{anio}/reportes"
 
     elif tipo == 1:
         periodo_reporte = f"Período: {mes} del {anio}"
-        directorio_reporte = directorio_trabajo + fecha_.toString('/yyyy/yyyy_MM/reporte')
+        directorio_reporte = base_trabajo + fecha_q_ini.toString('/yyyy/yyyy_MM/reporte')
 
     elif tipo == 2:
-        periodo_reporte = f"Semana {semana} del {anio}: del {fecha_.toString('dd/MM/yyyy')} al "
-        fecha_ = QDate(fecha_fin.year, fecha_fin.month, fecha_fin.day)
-        periodo_reporte += fecha_.toString('/dd/MM/yyyy')
-        directorio_reporte = directorio_trabajo + fecha_.toString('/yyyy/reportes/semanal/semana') + semana + "/"
+        periodo_reporte = (
+            f"Semana {semana} del {anio}: del {fecha_q_ini.toString('dd/MM/yyyy')} "
+            f"al /{fecha_q_fin.toString('dd/MM/yyyy')}"
+        )
+        directorio_reporte = f"{base_trabajo}/{anio_fin}/reportes/semanal/semana{semana}"
 
     elif tipo == 3:
-        mismo_mes_anio = (fecha_ini.year == fecha_fin.year) and (fecha_ini.month == fecha_fin.month)
-    
-        fecha_ = QDate(fecha_ini.year, fecha_ini.month, fecha_ini.day)
-        periodo_reporte = "Período: " + fecha_.toString('dd/MM/yyyy')
-
-        if mismo_mes_anio:
-            directorio_reporte = directorio_trabajo + fecha_.toString('/yyyy/yyyy_MM/reporte')
-        else:
-            directorio_reporte = directorio_trabajo + "/reportes" + fecha_.toString('/yyyy')
-            auxiliar = fecha_.toString('/yyyy_MM_dd')
-            fecha_ = QDate(fecha_fin.year, fecha_fin.month, fecha_fin.day)
-            auxiliar += fecha_.toString('_yyyy_MM_dd')
-            directorio_reporte += auxiliar
-
-        fecha_ = QDate(fecha_fin.year, fecha_fin.month, fecha_fin.day)
-        periodo_reporte += fecha_.toString(' a dd/MM/yyyy')
+        periodo_reporte = (
+            f"Período: {fecha_q_ini.toString('dd/MM/yyyy')} a {fecha_q_fin.toString('dd/MM/yyyy')}"
+        )
+        rango_carpeta = (
+            f"{fecha_q_ini.toString('yyyy_MM_dd')}_{fecha_q_fin.toString('yyyy_MM_dd')}"
+        )
+        directorio_reporte = f"{base_trabajo}/{anio_fin}/reportes/periodos/{rango_carpeta}"
 
     else:
         periodo_reporte = ""
@@ -634,63 +640,725 @@ def obtener_datos_reporte(fecha_ini, fecha_fin, directorio_trabajo, mapa_="Ecuad
     if periodo_reporte.startswith("Período: "):
         nombre_archivo = periodo_reporte[9:].replace('/', '_')
     else:
-        nombre_archivo = periodo_reporte[:10]
+        nombre_archivo = periodo_reporte[:10].strip()
     archivo_reporte = f"{directorio_reporte}/{mapa_}/{nombre_archivo}"
     return periodo_reporte, directorio_reporte, archivo_reporte
 
-def generar_directorios_unidades_basicas(fecha_ini, fecha_fin, directorio_trabajo="G:/Mi unidad/DIA"):
+def generar_directorios_unidades_basicas(
+    fecha_ini,
+    fecha_fin,
+    directorio_trabajo="G:/Mi unidad/DIA",
+    verificar_existencia=False,
+    detallar=False,
+    nivel_maximo="ANIO",
+):
     """
-    Divide el rango entre fecha_ini y fecha_fin en unidades básicas (días, meses, años)
-    y retorna una lista de rutas de directorio generadas con obtener_datos_reporte().
+    Descompone jerárquicamente el intervalo [fecha_ini, fecha_fin] en unidades básicas
+    siguiendo la estructura telescópica:
+        días -> semanas -> meses -> años -> meses -> semanas -> días
+
+    Jerarquía de consolidación:
+      1. Años completos (01/01/AAAA al 31/12/AAAA)
+      2. Meses completos (01/MM/AAAA al último día del mes)
+      3. Semanas ISO completas (Lunes a Domingo, 7 días)
+      4. Días individuales (AAMMDD000000)
+
+    Si `verificar_existencia=True`, cada bloque mayor (Año, Mes, Semana o Período exacto)
+    solo se selecciona si su archivo `<prefijo>_cat.csv` ya existe en disco (bajo la
+    carpeta `Ecuador`); de lo contrario, ese sub-intervalo desciende automáticamente
+    al siguiente nivel más fino (Año -> Mes -> Semana -> Día).
 
     Parámetros:
-        fecha_ini (date): Fecha inicial del rango.
-        fecha_fin (date): Fecha final del rango.
-        directorio_trabajo (str): Ruta base del directorio de trabajo.
+        fecha_ini (date | datetime): Fecha inicial del rango.
+        fecha_fin (date | datetime): Fecha final del rango.
+        directorio_trabajo (str): Ruta base del directorio de trabajo (`DIA`).
+        verificar_existencia (bool): Si True, valida en disco la existencia de `<prefijo>_cat.csv`.
+        detallar (bool): Si True, retorna diccionarios con metadatos de cada unidad;
+                         si False, retorna la lista de prefijos de ruta (`List[str]`).
+        nivel_maximo (str): Nivel máximo de consolidación ('ANIO', 'MES', 'SEMANA' o 'DIA').
 
     Retorna:
-        List[str]: Lista de rutas únicas generadas por obtener_datos_reporte().
+        List[str] | List[dict]: Lista ordenada cronológicamente de unidades básicas.
     """
+    f_ini = fecha_ini.date() if isinstance(fecha_ini, datetime) else fecha_ini
+    f_fin = fecha_fin.date() if isinstance(fecha_fin, datetime) else fecha_fin
+    if f_ini > f_fin:
+        f_ini, f_fin = f_fin, f_ini
 
-    def ultimo_dia_mes(fecha):
-        return date(fecha.year, fecha.month, calendar.monthrange(fecha.year, fecha.month)[1])
+    base_trabajo = str(directorio_trabajo).rstrip('/\\')
 
-    def ultimo_dia_anio(fecha):
-        return date(fecha.year, 12, 31)
+    def _unidad_valida(u_ini, u_fin, tipo_forzado):
+        _, _, prefijo = obtener_datos_reporte(
+            u_ini, u_fin, base_trabajo, mapa_="Ecuador", tipo_forzado=tipo_forzado
+        )
+        if not verificar_existencia:
+            return prefijo
+        if os.path.isfile(f"{prefijo}_cat.csv"):
+            return prefijo
+        return None
 
-    directorios = []
-    actual = fecha_ini
+    def _descomponer_anio(ini, fin):
+        for anio in range(ini.year, fin.year + 1):
+            ini_anio = date(anio, 1, 1)
+            fin_anio = date(anio, 12, 31)
+            if ini_anio >= ini and fin_anio <= fin:
+                prefijo = _unidad_valida(ini_anio, fin_anio, tipo_forzado=0)
+                if prefijo is not None:
+                    izquierda = _descomponer_anio(ini, ini_anio - timedelta(days=1)) if ini < ini_anio else []
+                    centro = [{
+                        'tipo': 'ANIO',
+                        'fecha_ini': ini_anio,
+                        'fecha_fin': fin_anio,
+                        'prefijo': prefijo,
+                    }]
+                    derecha = _descomponer_anio(fin_anio + timedelta(days=1), fin) if fin_anio < fin else []
+                    return izquierda + centro + derecha
+        return _descomponer_mes(ini, fin)
 
-    while actual <= fecha_fin:
-        # Intentar agregar un año completo
-        if actual.day == 1 and actual.month == 1:
-            fin_anio = ultimo_dia_anio(actual)
-            if fin_anio <= fecha_fin:
-                _, ruta,ruta_archivo = obtener_datos_reporte(actual, fin_anio, directorio_trabajo)
-                if ruta not in directorios:
-                    directorios.append(ruta_archivo)
-                actual = fin_anio + timedelta(days=1)
-                continue
+    def _descomponer_mes(ini, fin):
+        anio_act, mes_act = ini.year, ini.month
+        while (anio_act, mes_act) <= (fin.year, fin.month):
+            ini_mes = date(anio_act, mes_act, 1)
+            ult_dia = calendar.monthrange(anio_act, mes_act)[1]
+            fin_mes = date(anio_act, mes_act, ult_dia)
+            if ini_mes >= ini and fin_mes <= fin:
+                prefijo = _unidad_valida(ini_mes, fin_mes, tipo_forzado=1)
+                if prefijo is not None:
+                    izquierda = _descomponer_mes(ini, ini_mes - timedelta(days=1)) if ini < ini_mes else []
+                    centro = [{
+                        'tipo': 'MES',
+                        'fecha_ini': ini_mes,
+                        'fecha_fin': fin_mes,
+                        'prefijo': prefijo,
+                    }]
+                    derecha = _descomponer_mes(fin_mes + timedelta(days=1), fin) if fin_mes < fin else []
+                    return izquierda + centro + derecha
+            if mes_act == 12:
+                anio_act += 1
+                mes_act = 1
+            else:
+                mes_act += 1
+        return _descomponer_semana(ini, fin)
 
-        # Intentar agregar un mes completo
-        if actual.day == 1:
-            fin_mes = ultimo_dia_mes(actual)
-            if fin_mes <= fecha_fin:
-                _, ruta,ruta_archivo = obtener_datos_reporte(actual, fin_mes, directorio_trabajo)
-                if ruta not in directorios:
-                    directorios.append(ruta_archivo)
-                actual = fin_mes + timedelta(days=1)
-                continue
+    def _descomponer_semana(ini, fin):
+        dias_hasta_lunes = (7 - ini.weekday()) % 7
+        ini_sem = ini + timedelta(days=dias_hasta_lunes)
+        while ini_sem + timedelta(days=6) <= fin:
+            fin_sem = ini_sem + timedelta(days=6)
+            prefijo = _unidad_valida(ini_sem, fin_sem, tipo_forzado=2)
+            if prefijo is not None:
+                izquierda = _descomponer_semana(ini, ini_sem - timedelta(days=1)) if ini < ini_sem else []
+                centro = [{
+                    'tipo': 'SEMANA',
+                    'fecha_ini': ini_sem,
+                    'fecha_fin': fin_sem,
+                    'prefijo': prefijo,
+                }]
+                derecha = _descomponer_semana(fin_sem + timedelta(days=1), fin) if fin_sem < fin else []
+                return izquierda + centro + derecha
+            ini_sem += timedelta(days=7)
+        return _descomponer_dia(ini, fin)
 
-        # Día individual
-        archivo = f"{str(actual.year)[2:]:0>2}{actual.month:02d}{actual.day:02d}000000"
-        ruta_archivo = directorio_trabajo+'/'+obtener_directorios(archivo)['archivo_csv']
-        #_, ruta,ruta_archivo = obtener_datos_reporte(actual, actual, directorio_trabajo)
+    def _descomponer_dia(ini, fin):
+        unidades_dia = []
+        actual = ini
+        while actual <= fin:
+            anio_s = f"{actual.year:04d}"
+            mes_s = f"{actual.year:04d}_{actual.month:02d}"
+            dia_s = f"{actual.year:04d}_{actual.month:02d}_{actual.day:02d}"
+            carpeta_dia = f"{base_trabajo}/{anio_s}/{mes_s}/{dia_s}"
+            prefijo_2d = f"{str(actual.year)[2:]:0>2}{actual.month:02d}{actual.day:02d}000000"
+            prefijo_4d = f"{actual.year:04d}{actual.month:02d}{actual.day:02d}000000"
+            ruta_2d = f"{carpeta_dia}/{prefijo_2d}"
+            ruta_4d = f"{carpeta_dia}/{prefijo_4d}"
+            if not os.path.isfile(f"{ruta_2d}_cat.csv") and os.path.isfile(f"{ruta_4d}_cat.csv"):
+                ruta_prefijo = ruta_4d
+            else:
+                ruta_prefijo = ruta_2d
+            unidades_dia.append({
+                'tipo': 'DIA',
+                'fecha_ini': actual,
+                'fecha_fin': actual,
+                'prefijo': ruta_prefijo,
+            })
+            actual += timedelta(days=1)
+        return unidades_dia
 
-        directorios.append(ruta_archivo)
-        actual += timedelta(days=1)
+    nivel_norm = str(nivel_maximo or "ANIO").upper()
+    if nivel_norm == "DIA":
+        unidades = _descomponer_dia(f_ini, f_fin)
+    elif nivel_norm == "SEMANA":
+        unidades = _descomponer_semana(f_ini, f_fin)
+    elif nivel_norm == "MES":
+        unidades = _descomponer_mes(f_ini, f_fin)
+    else:
+        # Si el reporte exacto del período completo [f_ini, f_fin] ya fue emitido en Ecuador,
+        # tomarlo directamente por defecto antes de descomponer en sub-unidades
+        prefijo_exacto = _unidad_valida(f_ini, f_fin, tipo_forzado=None) if verificar_existencia else None
+        if prefijo_exacto is not None and f_ini != f_fin:
+            if (f_ini.month, f_ini.day) == (1, 1) and (f_fin.month, f_fin.day) == (12, 31) and f_ini.year == f_fin.year:
+                tipo_ex = 'ANIO'
+            elif (
+                f_ini.day == 1
+                and f_ini.year == f_fin.year
+                and f_ini.month == f_fin.month
+                and f_fin.day == calendar.monthrange(f_ini.year, f_ini.month)[1]
+            ):
+                tipo_ex = 'MES'
+            elif (f_fin - f_ini).days == 6 and f_ini.weekday() == 0 and f_fin.weekday() == 6:
+                tipo_ex = 'SEMANA'
+            else:
+                tipo_ex = 'PERIODO'
+            unidades = [{
+                'tipo': tipo_ex,
+                'fecha_ini': f_ini,
+                'fecha_fin': f_fin,
+                'prefijo': prefijo_exacto,
+            }]
+        else:
+            unidades = _descomponer_anio(f_ini, f_fin)
 
-    return directorios
+    if detallar:
+        return unidades
+    return [u['prefijo'] for u in unidades]
+
+
+def consolidar_archivos_periodo_ecuador(
+    fecha_ini,
+    fecha_fin,
+    directorio_trabajo="G:/Mi unidad/DIA",
+    tipo_forzado=None,
+    nivel_maximo="DIA",
+):
+    """
+    Reconstruye y guarda todos los archivos de datos consolidados de un período
+    (Semana, Mes o Año) en la carpeta `Ecuador` SIN generar archivos PDF:
+      - `<prefijo>_cat.csv`
+      - `<prefijo>_rep.csv`
+      - `<prefijo>_rep_total.csv`
+      - `<prefijo>_res.csv`
+      - `<prefijo>.xml`
+      - `<prefijo>__rsa_sup/med/pro.csv` y `<prefijo>__otr_sup/med/pro.csv`
+    """
+    f_ini = fecha_ini.date() if isinstance(fecha_ini, datetime) else fecha_ini
+    f_fin = fecha_fin.date() if isinstance(fecha_fin, datetime) else fecha_fin
+    if f_ini > f_fin:
+        f_ini, f_fin = f_fin, f_ini
+
+    _, _, prefijo_salida = obtener_datos_reporte(
+        f_ini, f_fin, directorio_trabajo, mapa_="Ecuador", tipo_forzado=tipo_forzado
+    )
+    Path(os.path.dirname(prefijo_salida)).mkdir(parents=True, exist_ok=True)
+
+    unidades = generar_directorios_unidades_basicas(
+        f_ini,
+        f_fin,
+        directorio_trabajo=directorio_trabajo,
+        verificar_existencia=True,
+        detallar=True,
+        nivel_maximo=nivel_maximo,
+    )
+
+    catalogo = [[
+        "Id", "año", "mes", "día", "hora", "min", "seg", "lat", "long", "prof",
+        "rms", "e-x", "e-y", "e-0", "e-z", "Mag", "Tipo Mag", "Fuente", "ruta", "Ubicación"
+    ]]
+    eventos_reporte = [[
+        "Nº", "Fecha Hora (UTC)", "Evento", "Magn.", "Prof.(km)", "Lat.", "Long.", "Ubicación"
+    ]]
+    resumen = [["DIA", "SISMO", "FF", "FC", "TELESISMO", "Evento Local", "INDEFINIDO", "Ruido"]]
+    reporte_total = [[
+        "RESPONSABLE", "HORA", "TOT.", "SIS.", "FF", "FC", "IND.", "TEL.",
+        "Local_CONTROL.", "Ruido", "3 est", "4 est", "5 est", "6 est", "7 est", "8 est"
+    ]]
+    raiz_xml = ET.Element("sismo")
+
+    for unidad in unidades:
+        tipo_u = unidad['tipo']
+        prefijo = unidad['prefijo']
+        ruta_cat = f"{prefijo}_cat.csv"
+
+        if os.path.isfile(ruta_cat):
+            datos_cat = lectura_archivo(ruta_cat)
+            if datos_cat and datos_cat[0][0] == "Id":
+                catalogo.extend(datos_cat[1:])
+            elif datos_cat:
+                catalogo.extend(datos_cat)
+
+        if tipo_u in ('ANIO', 'MES', 'SEMANA'):
+            ruta_rep = f"{prefijo}_rep.csv"
+            ruta_res = f"{prefijo}_res.csv"
+            ruta_rtot = f"{prefijo}_rep_total.csv"
+            ruta_xml = f"{prefijo}.xml"
+
+            if os.path.isfile(ruta_rep):
+                d_rep = lectura_archivo(ruta_rep)
+                if d_rep and d_rep[0][0] in ("Nº", "0"):
+                    eventos_reporte.extend(d_rep[1:])
+                elif d_rep:
+                    eventos_reporte.extend(d_rep)
+            if os.path.isfile(ruta_res):
+                d_res = lectura_resumen(ruta_res)
+                for fila_r in (d_res or []):
+                    if not fila_r or fila_r[0] in ("DIA", "Total:"):
+                        continue
+                    resumen.append(list(fila_r[-7:]) if len(fila_r) >= 8 else list(fila_r))
+            if os.path.isfile(ruta_rtot):
+                d_rtot = lectura_resumen(ruta_rtot)
+                reporte_total.extend(
+                    [list(r) for r in (d_rtot or []) if r and r[0] != "RESPONSABLE"]
+                )
+            if os.path.isfile(ruta_xml):
+                try:
+                    raiz_u = ET.parse(ruta_xml).getroot()
+                    for child in raiz_u:
+                        raiz_xml.append(child)
+                except Exception:
+                    pass
+        else:
+            # Unidad DIA individual
+            ruta_rep = f"{prefijo}_rep.csv"
+            if not os.path.isfile(ruta_rep):
+                ruta_rep = f"{prefijo}_dat.csv"
+            ruta_res = f"{prefijo}_res.csv"
+            carpeta_dia = os.path.dirname(prefijo)
+            stem_dia = os.path.basename(prefijo)
+            pref_fecha_dia = stem_dia[:-6] if stem_dia.endswith("000000") else stem_dia[:6]
+            ruta_resp = os.path.join(carpeta_dia, "reportes", f"{pref_fecha_dia}_resp.csv")
+            if not os.path.isfile(ruta_resp):
+                ruta_resp = f"{prefijo}_responsables.csv"
+            ruta_xml = f"{prefijo}.xml"
+
+            if os.path.isfile(ruta_rep):
+                d_rep = lectura_archivo(ruta_rep)
+                if d_rep and d_rep[0][0] in ("Nº", "0"):
+                    eventos_reporte.extend(d_rep[1:])
+                elif d_rep:
+                    eventos_reporte.extend(d_rep)
+            if os.path.isfile(ruta_res):
+                for fila_r in (lectura_resumen(ruta_res) or []):
+                    if fila_r and fila_r[0] not in ("DIA", "Total:", "SISMO"):
+                        resumen.append(list(fila_r[-7:]) if len(fila_r) >= 8 else list(fila_r))
+            if os.path.isfile(ruta_resp):
+                for fila_rt in (lectura_resumen(ruta_resp) or []):
+                    if fila_rt and fila_rt[0] != "RESPONSABLE":
+                        reporte_total.append(list(fila_rt))
+            if os.path.isfile(ruta_xml):
+                try:
+                    raiz_d = ET.parse(ruta_xml).getroot()
+                    for child in raiz_d:
+                        raiz_xml.append(child)
+                except Exception:
+                    pass
+
+    # Eliminar posibles duplicados por Id manteniendo cabecera
+    vistos_id = set()
+    catalogo_unico = [catalogo[0]]
+    for fila_c in catalogo[1:]:
+        if not fila_c:
+            continue
+        clave_id = str(fila_c[0]).strip()
+        if clave_id not in vistos_id:
+            vistos_id.add(clave_id)
+            catalogo_unico.append(fila_c)
+    catalogo = sorted(catalogo_unico[1:], key=lambda x: str(x[0]))
+    catalogo.insert(0, catalogo_unico[0])
+
+    # Contabilizar totales globales del período para `<prefijo>_res.csv`
+    cont_sismos = 0
+    cont_FF = 0
+    cont_FC = 0
+    cont_tel = 0
+    cont_ev = 0
+    cont_ind = 0
+    cont_ruido = 0
+    for fila_ev in eventos_reporte[1:]:
+        if len(fila_ev) < 3:
+            continue
+        tipo_ev = fila_ev[2]
+        if tipo_ev == "SISMO":
+            cont_sismos += 1
+        elif tipo_ev == "FF":
+            cont_FF += 1
+        elif tipo_ev == "FC":
+            cont_FC += 1
+        elif tipo_ev == "TELESISMO":
+            cont_tel += 1
+        elif tipo_ev in ("Evento_local", "CONTROL"):
+            cont_ev += 1
+        elif tipo_ev == "Ruido":
+            cont_ruido += 1
+        elif tipo_ev == "INDEFINIDO":
+            cont_ind += 1
+
+    resumen_salida = [list(r) for r in resumen]
+    resumen_salida.insert(
+        1,
+        ["Total:", cont_sismos, cont_FF, cont_FC, cont_tel, cont_ev, cont_ind, cont_ruido],
+    )
+    for idx_r in range(2, len(resumen_salida)):
+        resumen_salida[idx_r].insert(0, idx_r - 1)
+
+    # Clasificar eventos del catálogo por estrato de profundidad y red para CSVs SIG
+    even_rsa_sup = [["LAT", "LONG", "Prof.", "Mag."]]
+    even_rsa_int = [["LAT", "LONG", "Prof.", "Mag."]]
+    even_rsa_prof = [["LAT", "LONG", "Prof.", "Mag."]]
+    even_otr_sup = [["LAT", "LONG", "Prof.", "Mag."]]
+    even_otr_int = [["LAT", "LONG", "Prof.", "Mag."]]
+    even_otr_prof = [["LAT", "LONG", "Prof.", "Mag."]]
+
+    for fila_c in catalogo[1:]:
+        try:
+            lat_c = float(fila_c[IDX_LATITUD])
+            lon_c = float(fila_c[IDX_LONGITUD])
+            prof_c = -1.0 * float(fila_c[IDX_PROFUNDIDAD])
+            mag_c = float(fila_c[IDX_MAGNITUD])
+            es_rsa = (fila_c[IDX_FUENTE] == "RSA")
+            ev_sig = [lat_c, lon_c, prof_c, mag_c]
+            if prof_c > -40.0:
+                (even_rsa_sup if es_rsa else even_otr_sup).append(ev_sig)
+            elif prof_c > -70.0:
+                (even_rsa_int if es_rsa else even_otr_int).append(ev_sig)
+            else:
+                (even_rsa_prof if es_rsa else even_otr_prof).append(ev_sig)
+        except (ValueError, IndexError):
+            continue
+
+    # Escritura de todos los archivos consolidados en la carpeta Ecuador
+    escritura_archivo(f"{prefijo_salida}_cat.csv", catalogo)
+    escritura_archivo(f"{prefijo_salida}_rep.csv", eventos_reporte)
+    escritura_archivo(f"{prefijo_salida}_rep_total.csv", reporte_total)
+    escritura_archivo(f"{prefijo_salida}_res.csv", resumen_salida)
+
+    pares_sig = [
+        (f"{prefijo_salida}__rsa_sup.csv", even_rsa_sup),
+        (f"{prefijo_salida}__rsa_med.csv", even_rsa_int),
+        (f"{prefijo_salida}__rsa_pro.csv", even_rsa_prof),
+        (f"{prefijo_salida}__otr_sup.csv", even_otr_sup),
+        (f"{prefijo_salida}__otr_med.csv", even_otr_int),
+        (f"{prefijo_salida}__otr_pro.csv", even_otr_prof),
+    ]
+    for ruta_sig, datos_sig in pares_sig:
+        with open(ruta_sig, "w", newline="", encoding="utf-8") as f_sig:
+            escritor_sig = csv.writer(f_sig, delimiter=",")
+            for fila_sig in datos_sig:
+                escritor_sig.writerow(fila_sig)
+
+    ET.ElementTree(raiz_xml).write(
+        f"{prefijo_salida}.xml", encoding="utf-8", xml_declaration=True
+    )
+    return prefijo_salida
+
+
+def _pertenece_fila_cat_a_fecha(fila: list, fecha_d: date) -> bool:
+    """Determina si una fila de `_cat.csv` pertenece a la fecha `fecha_d`."""
+    if not fila or len(fila) < 19 or fila[0] == "Id":
+        return False
+    pref_8 = fecha_d.strftime("%Y%m%d")
+    pref_6 = fecha_d.strftime("%y%m%d")
+    id_str = str(fila[0]).strip()
+    if id_str.startswith(pref_8):
+        return True
+    ruta_nom = os.path.basename(str(fila[18]).strip())
+    if ruta_nom.startswith(f"{pref_6}_") or ruta_nom.startswith(f"{pref_8}_"):
+        return True
+    try:
+        return (int(fila[1]), int(fila[2]), int(fila[3])) == (fecha_d.year, fecha_d.month, fecha_d.day)
+    except (ValueError, TypeError, IndexError):
+        return False
+
+
+def _extraer_fecha_fila_rep(fila: list):
+    """Extrae un `date` desde la columna 1 de una fila de `_rep.csv` si es posible."""
+    if not fila or len(fila) < 2 or fila[0] in ("Nº", "0"):
+        return None
+    txt = os.path.basename(str(fila[1]).strip())
+    m_barra = re.match(r"^(20\d{2})/(\d{2})/(\d{2})", txt)
+    if m_barra:
+        try:
+            return date(int(m_barra.group(1)), int(m_barra.group(2)), int(m_barra.group(3)))
+        except ValueError:
+            return None
+    m8 = re.match(r"^(20\d{2})(\d{2})(\d{2})[_]", txt)
+    if m8:
+        try:
+            return date(int(m8.group(1)), int(m8.group(2)), int(m8.group(3)))
+        except ValueError:
+            return None
+    m6 = re.match(r"^(\d{2})(\d{2})(\d{2})[_]", txt)
+    if m6:
+        try:
+            return date(2000 + int(m6.group(1)), int(m6.group(2)), int(m6.group(3)))
+        except ValueError:
+            return None
+    return None
+
+
+def _reemplazar_dia_en_periodo_emitido(
+    prefijo_salida: str,
+    fecha_d: date,
+    fecha_ini_periodo: date,
+    directorio_trabajo: str = "G:/Mi unidad/DIA",
+) -> bool:
+    """
+    Abre los archivos ya emitidos de una unidad de tiempo mayor (Semana ISO, Mes o Año)
+    en `Ecuador` y reemplaza quirúrgicamente los registros correspondientes a `fecha_d`
+    con los nuevos datos del día, sin necesidad de re-escanear todos los demás días
+    del período ni regenerar PDFs.
+    """
+    ruta_cat_per = f"{prefijo_salida}_cat.csv"
+    if not os.path.isfile(ruta_cat_per):
+        return False
+
+    info_dia = obtener_directorios(
+        os.path.join(directorio_trabajo, fecha_d.strftime("%Y%m%d000000"))
+    )
+    ruta_cat_dia = info_dia["archivo_catalogo"]
+    ruta_rep_dia = info_dia["archivo_reporte"]
+    ruta_res_dia = info_dia["archivo_resumen"]
+    ruta_xml_dia = info_dia["archivo_xml"]
+
+    # 1) Abrir `_cat.csv` del período y reemplazar las filas de `fecha_d`
+    cat_per = lectura_archivo(ruta_cat_per) or []
+    cabecera_cat = (
+        cat_per[0]
+        if cat_per and cat_per[0] and cat_per[0][0] == "Id"
+        else [
+            "Id", "año", "mes", "día", "hora", "min", "seg", "lat", "long", "prof",
+            "rms", "e-x", "e-y", "e-0", "e-z", "Mag", "Tipo Mag", "Fuente", "ruta", "Ubicación"
+        ]
+    )
+    filas_cat_conservadas = [
+        f for f in (cat_per[1:] if cat_per and cat_per[0][0] == "Id" else cat_per)
+        if f and not _pertenece_fila_cat_a_fecha(f, fecha_d)
+    ]
+
+    cat_dia = lectura_archivo(ruta_cat_dia) if os.path.isfile(ruta_cat_dia) else []
+    filas_cat_nuevas = [
+        f for f in (cat_dia[1:] if cat_dia and cat_dia[0][0] == "Id" else (cat_dia or []))
+        if f and len(f) >= 19 and str(f[0]).strip() not in ("Id", "00000000000000")
+    ]
+
+    combinadas_cat = filas_cat_conservadas + filas_cat_nuevas
+    vistos_cat = set()
+    unicas_cat = []
+    for f in combinadas_cat:
+        clave = (str(f[0]).strip(), str(f[17]).strip(), str(f[18]).strip())
+        if clave not in vistos_cat:
+            vistos_cat.add(clave)
+            unicas_cat.append(f)
+    unicas_cat.sort(key=lambda x: str(x[0]).strip())
+    catalogo_actualizado = [cabecera_cat] + unicas_cat
+    escritura_archivo(ruta_cat_per, catalogo_actualizado)
+
+    # Actualizar también los 6 archivos SIG (__rsa_sup/med/pro.csv y __otr_sup/med/pro.csv)
+    even_rsa_sup = [["LAT", "LONG", "Prof.", "Mag."]]
+    even_rsa_int = [["LAT", "LONG", "Prof.", "Mag."]]
+    even_rsa_prof = [["LAT", "LONG", "Prof.", "Mag."]]
+    even_otr_sup = [["LAT", "LONG", "Prof.", "Mag."]]
+    even_otr_int = [["LAT", "LONG", "Prof.", "Mag."]]
+    even_otr_prof = [["LAT", "LONG", "Prof.", "Mag."]]
+    for fila_c in unicas_cat:
+        try:
+            lat_c = float(fila_c[IDX_LATITUD])
+            lon_c = float(fila_c[IDX_LONGITUD])
+            prof_c = -1.0 * float(fila_c[IDX_PROFUNDIDAD])
+            mag_c = float(fila_c[IDX_MAGNITUD])
+            es_rsa = (str(fila_c[IDX_FUENTE]).strip() == "RSA")
+            ev_sig = [lat_c, lon_c, prof_c, mag_c]
+            if prof_c > -40.0:
+                (even_rsa_sup if es_rsa else even_otr_sup).append(ev_sig)
+            elif prof_c > -70.0:
+                (even_rsa_int if es_rsa else even_otr_int).append(ev_sig)
+            else:
+                (even_rsa_prof if es_rsa else even_otr_prof).append(ev_sig)
+        except (ValueError, IndexError):
+            continue
+
+    for ruta_sig, datos_sig in (
+        (f"{prefijo_salida}__rsa_sup.csv", even_rsa_sup),
+        (f"{prefijo_salida}__rsa_med.csv", even_rsa_int),
+        (f"{prefijo_salida}__rsa_pro.csv", even_rsa_prof),
+        (f"{prefijo_salida}__otr_sup.csv", even_otr_sup),
+        (f"{prefijo_salida}__otr_med.csv", even_otr_int),
+        (f"{prefijo_salida}__otr_pro.csv", even_otr_prof),
+    ):
+        try:
+            with open(ruta_sig, "w", newline="", encoding="utf-8") as f_sig:
+                escritor_sig = csv.writer(f_sig, delimiter=",")
+                for fila_sig in datos_sig:
+                    escritor_sig.writerow(fila_sig)
+        except Exception:
+            pass
+
+    # 2) Abrir `_rep.csv` del período y reemplazar las filas de `fecha_d` en orden cronológico
+    ruta_rep_per = f"{prefijo_salida}_rep.csv"
+    if os.path.isfile(ruta_rep_per) and os.path.isfile(ruta_rep_dia):
+        try:
+            rep_per = lectura_archivo(ruta_rep_per) or []
+            cabecera_rep = (
+                rep_per[0]
+                if rep_per and rep_per[0] and rep_per[0][0] in ("Nº", "0")
+                else ["Nº", "Fecha Hora (UTC)", "Evento", "Magn.", "Prof.(km)", "Lat.", "Long.", "Ubicación"]
+            )
+            filas_rep_orig = rep_per[1:] if rep_per and rep_per[0][0] in ("Nº", "0") else rep_per
+            rep_dia = lectura_archivo(ruta_rep_dia) or []
+            filas_rep_dia = rep_dia[1:] if rep_dia and rep_dia[0][0] in ("Nº", "0") else rep_dia
+
+            antes_rep = []
+            despues_rep = []
+            en_despues = False
+            for f_r in filas_rep_orig:
+                f_fecha = _extraer_fecha_fila_rep(f_r)
+                if f_fecha == fecha_d:
+                    en_despues = True
+                    continue
+                if f_fecha is not None and f_fecha > fecha_d:
+                    en_despues = True
+                if not en_despues:
+                    antes_rep.append(f_r)
+                else:
+                    despues_rep.append(f_r)
+
+            escritura_archivo(ruta_rep_per, [cabecera_rep] + antes_rep + filas_rep_dia + despues_rep)
+        except Exception:
+            pass
+
+    # 3) Abrir `_res.csv` del período y reemplazar la fila del día + recalcular 'Total:'
+    ruta_res_per = f"{prefijo_salida}_res.csv"
+    if os.path.isfile(ruta_res_per) and os.path.isfile(ruta_res_dia):
+        try:
+            res_per = lectura_archivo(ruta_res_per) or []
+            res_dia = lectura_archivo(ruta_res_dia) or []
+            valores_dia = res_dia[1] if len(res_dia) > 1 else (res_dia[0] if res_dia else None)
+            idx_dia_periodo = (fecha_d - fecha_ini_periodo).days + 1
+            if valores_dia and len(valores_dia) >= 7 and len(res_per) >= 2:
+                reemplazado_res = False
+                for i_r in range(2, len(res_per)):
+                    if res_per[i_r] and str(res_per[i_r][0]).strip() == str(idx_dia_periodo):
+                        res_per[i_r] = [str(idx_dia_periodo)] + [str(x) for x in valores_dia[:7]]
+                        reemplazado_res = True
+                        break
+                if reemplazado_res:
+                    totales = [0] * 7
+                    for i_r in range(2, len(res_per)):
+                        if res_per[i_r] and len(res_per[i_r]) >= 8:
+                            for col_idx in range(7):
+                                try:
+                                    totales[col_idx] += int(float(res_per[i_r][col_idx + 1]))
+                                except (ValueError, TypeError):
+                                    pass
+                    res_per[1] = ["Total:"] + [str(t) for t in totales]
+                    escritura_archivo(ruta_res_per, res_per)
+        except Exception:
+            pass
+
+    # 4) Abrir `.xml` del período y reemplazar los nodos `<Evento>` de `fecha_d`
+    ruta_xml_per = f"{prefijo_salida}.xml"
+    if os.path.isfile(ruta_xml_per) and os.path.isfile(ruta_xml_dia):
+        try:
+            pref_8 = fecha_d.strftime("%Y%m%d")
+            pref_6 = fecha_d.strftime("%y%m%d")
+            arbol_per = ET.parse(ruta_xml_per)
+            raiz_per = arbol_per.getroot()
+            nodos_conservados = []
+            for ev_node in list(raiz_per.findall("Evento")):
+                id_ev = (ev_node.findtext("id_evento") or "").strip()
+                ruta_ev = os.path.basename((ev_node.findtext("ruta") or "").strip())
+                if id_ev.startswith(pref_8) or ruta_ev.startswith(f"{pref_6}_") or ruta_ev.startswith(f"{pref_8}_"):
+                    continue
+                nodos_conservados.append(ev_node)
+
+            raiz_dia = ET.parse(ruta_xml_dia).getroot()
+            nodos_nuevos = list(raiz_dia.findall("Evento"))
+            todos_nodos = nodos_conservados + nodos_nuevos
+            todos_nodos.sort(key=lambda n: (n.findtext("id_evento") or "").strip())
+
+            nueva_raiz = ET.Element("sismo")
+            for n_ev in todos_nodos:
+                nueva_raiz.append(n_ev)
+            ET.ElementTree(nueva_raiz).write(ruta_xml_per, encoding="utf-8", xml_declaration=True)
+        except Exception:
+            pass
+
+    return True
+
+
+def actualizar_periodos_emitidos_desde_fecha(fecha_referencia, directorio_trabajo="G:/Mi unidad/DIA"):
+    """
+    Propaga automáticamente en cascada (Semana ISO -> Mes -> Año) cualquier cambio
+    ocurrido en `fecha_referencia`, abriendo los catálogos y archivos ya emitidos en
+    la carpeta `Ecuador` y reemplazando los registros del día modificado con los
+    nuevos datos (sin regenerar PDFs).
+
+    Parámetros:
+        fecha_referencia (date | datetime | str): Fecha del día modificado o ruta de archivo del día.
+        directorio_trabajo (str): Ruta base del directorio de trabajo (`DIA`).
+
+    Retorna:
+        List[str]: Lista descriptiva de los períodos consolidados que fueron actualizados.
+    """
+    if isinstance(fecha_referencia, datetime):
+        fecha_d = fecha_referencia.date()
+    elif isinstance(fecha_referencia, date):
+        fecha_d = fecha_referencia
+    else:
+        texto = str(fecha_referencia)
+        m8 = re.search(r'(20\d{2})[_]?(\d{2})[_]?(\d{2})', texto)
+        if m8:
+            fecha_d = date(int(m8.group(1)), int(m8.group(2)), int(m8.group(3)))
+        else:
+            m6 = re.search(r'(\d{2})(\d{2})(\d{2})000000', texto)
+            if m6:
+                fecha_d = date(2000 + int(m6.group(1)), int(m6.group(2)), int(m6.group(3)))
+            else:
+                return []
+
+    actualizados = []
+
+    # 1. Semana ISO correspondiente (Lunes a Domingo): abre y reemplaza los datos del día
+    ini_semana = fecha_d - timedelta(days=fecha_d.weekday())
+    fin_semana = ini_semana + timedelta(days=6)
+    per_sem, _, pref_sem = obtener_datos_reporte(
+        ini_semana, fin_semana, directorio_trabajo, mapa_="Ecuador", tipo_forzado=2
+    )
+    if os.path.isfile(f"{pref_sem}_cat.csv"):
+        try:
+            _reemplazar_dia_en_periodo_emitido(pref_sem, fecha_d, ini_semana, directorio_trabajo)
+            actualizados.append(f"Semana ({per_sem})")
+            print(f"✓ Catálogo semanal actualizado (reemplazo del día {fecha_d}): {pref_sem}_cat.csv")
+        except Exception as e:
+            print(f"Error actualizando catálogo semanal {pref_sem}: {e}")
+
+    # 2. Mes correspondiente: abre y reemplaza los datos del día
+    ini_mes = date(fecha_d.year, fecha_d.month, 1)
+    fin_mes = date(fecha_d.year, fecha_d.month, calendar.monthrange(fecha_d.year, fecha_d.month)[1])
+    per_mes, _, pref_mes = obtener_datos_reporte(
+        ini_mes, fin_mes, directorio_trabajo, mapa_="Ecuador", tipo_forzado=1
+    )
+    if os.path.isfile(f"{pref_mes}_cat.csv"):
+        try:
+            _reemplazar_dia_en_periodo_emitido(pref_mes, fecha_d, ini_mes, directorio_trabajo)
+            actualizados.append(f"Mes ({per_mes})")
+            print(f"✓ Catálogo mensual actualizado (reemplazo del día {fecha_d}): {pref_mes}_cat.csv")
+        except Exception as e:
+            print(f"Error actualizando catálogo mensual {pref_mes}: {e}")
+
+    # 3. Año correspondiente: abre y reemplaza los datos del día
+    ini_anio = date(fecha_d.year, 1, 1)
+    fin_anio = date(fecha_d.year, 12, 31)
+    per_anio, _, pref_anio = obtener_datos_reporte(
+        ini_anio, fin_anio, directorio_trabajo, mapa_="Ecuador", tipo_forzado=0
+    )
+    if os.path.isfile(f"{pref_anio}_cat.csv"):
+        try:
+            _reemplazar_dia_en_periodo_emitido(pref_anio, fecha_d, ini_anio, directorio_trabajo)
+            actualizados.append(f"Año ({per_anio})")
+            print(f"✓ Catálogo anual actualizado (reemplazo del día {fecha_d}): {pref_anio}_cat.csv")
+        except Exception as e:
+            print(f"Error actualizando catálogo anual {pref_anio}: {e}")
+
+    return actualizados
 
 
 def extraccion_dato(dato,separador):

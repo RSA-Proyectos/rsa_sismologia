@@ -19,13 +19,22 @@ ruta_librerias = os.path.abspath(os.path.join(ruta_proyecto, 'src','librerias'))
 if ruta_librerias not in sys.path:
     sys.path.insert(0, ruta_librerias)
 
-from rsa_io import leer_mseed,lectura_archivo,escritura_archivo,copiar_archivos
-from rsa_procesamiento import archivos_fast,guardar_intento,guardar_informacion_diaria,ordenar_y_eliminar_duplicados,verificar_coincidencias
+from rsa_io import leer_mseed,lectura_archivo,escritura_archivo,copiar_archivos,Guardar_dia
+from rsa_procesamiento import archivos_fast,guardar_intento,guardar_informacion_diaria,ordenar_y_eliminar_duplicados,verificar_coincidencias,lectura_rsa
+from rsa_utilidades import actualizar_periodos_emitidos_desde_fecha
 from metodos_gis_rsa import widget_grafico_mpl
-from metodos_rsa import parametros_estaciones,grafico_evento_int,insertar_evento_otras_redes,cargar_dia,cargar_evento
+from metodos_rsa import (
+    parametros_estaciones,
+    grafico_evento_int,
+    insertar_evento_otras_redes,
+    cargar_dia,
+    cargar_evento,
+    buscar_evento_otra_red_en_linea,
+    sincronizar_otras_redes_dia,
+)
 from metodos_gestion import obtener_directorios
-from metodos_reportes_individuales import generar_reporte_sismo
-from rsa_pdf_catalogo import reporte_resumen_modos
+from metodos_reportes_individuales import generar_reporte_sismo, generar_reporte_acelerograma
+from rsa_pdf_catalogo import reporte_resumen_modos, construir_catalogo_temporal_turno
 
 
 #from metodos_reportes_individuales import insertar_evento_otras_redes
@@ -55,44 +64,262 @@ MODO_FACULTAD_RESUMEN         = 5   # M5 – Facultad resumen (Facultad/redes), 
 MODO_INSTITUCIONAL_DETALLADO  = 6   # M6 – Institucional detallado (solo catálogo), sin extras ni responsables
 MODO_INSTITUCIONAL_RESUMEN    = 7   # M7 – Institucional, sin detalle
 
-def evento_esta_procesado(self, nombre_evento):
+def evaluar_estado_evento(self, nombre_evento):
     """
-    Determina si un evento ya ha sido procesado exitosamente.
-    Revisa:
-    1. Si está presente en self.catalogo (localización calculada).
-    2. Si en self.eventos_reporte tiene datos válidos (no está como 'revisar').
-    3. Si existe su archivo de procesamiento *_proc.csv con intentos calculados.
+    Evalúa el estado técnico de un evento para determinar su categorización visual en el combo box:
+    - Exclusivo para eventos clasificados como 'SISMO' (los demás van siempre en negro: 'NO_SISMO').
+    - 'PENDIENTE' (Negro): El evento cuenta únicamente con el archivo .sis en la carpeta dia/ del host
+      (no tiene .fas en dia/), lo cual implica necesariamente que aún no ha sido procesado.
+    - 'INCONVENIENTE' (Rojo):
+      1. No encuentra el archivo .sis en dia/.
+      2. Habiendo pasado por procesamiento (existe .fas en dia/), presenta alguna falla:
+         - No encuentra los archivos FAST (.rsa).
+         - La lectura de la magnitud es 0 (o <= 0 / no determinada).
+         - El valor del RMS es mayor a 1.4 (o no determinado).
+    - 'EXITOSO' (Verde): Procesado correctamente (.sis, .fas y .rsa existen, Magnitud > 0 y RMS <= 1.4).
+
+    Retorna:
+        tuple[str, str]: (estado, tooltip_descriptivo)
     """
     base_nombre = Path(nombre_evento).name
+    stem = Path(nombre_evento).stem
+    stem_corto = stem[2:] if len(stem.replace('_', '')) == 14 else stem
 
-    # 1. Catálogo oficial cargado
+    # Los colores (Verde y Rojo) son EXCLUSIVOS para eventos clasificados como SISMO.
+    # Los demás tipos de evento (Ruido, FF, FC, etc.) siempre permanecen en negro.
+    tipo_evento = None
+    if hasattr(self, 'eventos') and self.eventos:
+        for ev in self.eventos:
+            if ev and len(ev) > 2 and Path(ev[1]).name == base_nombre:
+                tipo_evento = ev[2]
+                break
+
+    if tipo_evento is not None and tipo_evento != 'SISMO':
+        return 'NO_SISMO', f"Evento clasificado como {tipo_evento}"
+
+    # 1. Resolver rutas exactas de archivos asociados (.sis, .fas en dia/ y .rsa en fastHypo/)
+    archivo_sis = ""
+    archivo_fas = ""
+    archivo_rsa = ""
+
+    # Resolver mediante archivos_fast + verificar_coincidencias (maneja sufijos a/b/c y ss >= 50)
+    try:
+        rutas_base = archivos_fast(nombre_evento, self.directorio_trabajo, '', modo_minuto_fast='auto')
+        if hasattr(self, 'eventos') and self.eventos:
+            rutas = verificar_coincidencias(self.eventos, nombre_evento, rutas_base)
+        else:
+            rutas = rutas_base
+        if len(rutas) >= 3:
+            if os.path.isfile(rutas[0]):
+                archivo_sis = rutas[0]
+            if os.path.isfile(rutas[1]):
+                archivo_fas = rutas[1]
+            if os.path.isfile(rutas[2]):
+                archivo_rsa = rutas[2]
+    except Exception:
+        rutas = []
+
+    # Verificación directa en self.directorios del día activo por si difiere la ruta relativa
+    if hasattr(self, 'directorios') and isinstance(self.directorios, dict):
+        dir_dia_act = self.directorios.get('Directorio_dia', '')
+        dir_fast_act = self.directorios.get('Directorio_fastHypo', '')
+        if dir_dia_act and os.path.exists(dir_dia_act):
+            if not archivo_sis:
+                for cand in [
+                    os.path.join(dir_dia_act, f"{stem}.sis"),
+                    os.path.join(dir_dia_act, f"{stem_corto}.sis"),
+                    os.path.join(dir_dia_act, base_nombre),
+                ]:
+                    if os.path.isfile(cand):
+                        archivo_sis = cand
+                        break
+
+            if not archivo_fas:
+                for cand_f in [
+                    os.path.join(dir_dia_act, f"{stem}.fas"),
+                    os.path.join(dir_dia_act, f"{stem_corto}.fas"),
+                ]:
+                    if os.path.isfile(cand_f):
+                        archivo_fas = cand_f
+                        break
+
+        if not archivo_rsa and dir_fast_act and os.path.exists(dir_fast_act) and len(rutas) >= 3 and rutas[2]:
+            cand_rsa = os.path.join(dir_fast_act, Path(rutas[2]).name)
+            if os.path.isfile(cand_rsa):
+                archivo_rsa = cand_rsa
+
+    existe_sis = bool(archivo_sis and os.path.isfile(archivo_sis))
+    existe_fas = bool(archivo_fas and os.path.isfile(archivo_fas))
+    existe_fast = bool(archivo_rsa and os.path.isfile(archivo_rsa))
+
+    # 2. Regla fundamental de negocio:
+    # - Si no tiene ni siquiera .sis en dia/ -> ROJO (Inconveniente: falta extracción de .sis).
+    # - Si en dia/ SOLO tiene el archivo .sis (no existe .fas), implica necesariamente
+    #   que el evento AÚN NO HA SIDO PROCESADO -> SIEMPRE EN NEGRO (PENDIENTE).
+    if not existe_sis:
+        return 'INCONVENIENTE', "Inconveniente: No encuentra archivo .sis en dia/"
+
+    if not existe_fas:
+        return 'PENDIENTE', "Evento pendiente de procesamiento (solo .sis en host)"
+
+    # 3. A partir de aquí el evento tiene .sis y .fas en el host (ya pasó por procesamiento).
+    # Extraer Magnitud y RMS para validar calidad del procesamiento.
+    sismo_catalogo = None
     if hasattr(self, 'catalogo') and self.catalogo:
         for fila in self.catalogo:
             if fila and len(fila) > 18 and fila[18] != 'ruta':
-                if Path(fila[18]).name == base_nombre:
-                    return True
+                if Path(fila[18]).name == base_nombre or Path(fila[18]).stem == stem:
+                    sismo_catalogo = fila
+                    break
 
-    # 2. Resumen de eventos_reporte
-    if hasattr(self, 'eventos_reporte') and self.eventos_reporte:
-        for fila in self.eventos_reporte:
-            if fila and len(fila) > 3:
-                if Path(fila[1]).name == base_nombre:
-                    if fila[3] != 'revisar' and fila[3] != '' and fila[3] != ' ':
-                        return True
-
-    # 3. Archivo *_proc.csv en disco
+    arch_proc = ""
+    proc_rows = []
     try:
-        dir_evento = os.path.join(self.directorio_trabajo, nombre_evento)
-        dirs = obtener_directorios(dir_evento)
-        arch_proc = dirs.get('archivo_procesamiento', '')
+        if hasattr(self, 'directorios') and isinstance(self.directorios, dict):
+            dir_proc = self.directorios.get('Directorio_procesamiento', '')
+            if dir_proc and os.path.exists(dir_proc):
+                for f_p in os.listdir(dir_proc):
+                    if f_p.lower().endswith('_proc.csv') and (stem in f_p or stem_corto in f_p):
+                        arch_proc = os.path.join(dir_proc, f_p)
+                        break
+        if not arch_proc:
+            dirs_proc = obtener_directorios(os.path.join(self.directorio_trabajo, nombre_evento))
+            arch_proc = dirs_proc.get('archivo_procesamiento', '')
         if arch_proc and os.path.exists(arch_proc):
-            contenido = lectura_archivo(arch_proc)
-            if contenido and len(contenido) > 2:
-                return True
+            proc_rows = lectura_archivo(arch_proc)
     except Exception:
         pass
 
-    return False
+    es_evento_actual = (
+        hasattr(self, 'evento_procesar')
+        and self.evento_procesar
+        and Path(self.evento_procesar[1]).stem == stem
+    )
+    tiene_proc_en_memoria = bool(
+        es_evento_actual
+        and hasattr(self, 'procesamiento')
+        and self.procesamiento
+        and len(self.procesamiento) > 2
+        and any(len(r) > 2 and r[2] not in ("Inicio", " ") for r in self.procesamiento[1:])
+    )
+
+    val_mag = None
+    val_rms = None
+
+    # Prioridad A: catálogo oficial en memoria
+    if sismo_catalogo:
+        try:
+            val_rms = float(sismo_catalogo[10])
+        except (ValueError, TypeError, IndexError):
+            pass
+        try:
+            val_mag = float(sismo_catalogo[15])
+        except (ValueError, TypeError, IndexError):
+            pass
+
+    # Prioridad B: procesamiento en memoria si es el evento activo
+    if (val_mag is None or val_rms is None) and tiene_proc_en_memoria:
+        fila_mem = self.procesamiento[-1]
+        if len(fila_mem) >= 7 and fila_mem[2] not in ("Inicio", "Fallido"):
+            if val_mag is None:
+                try:
+                    val_mag = float(fila_mem[3])
+                except (ValueError, TypeError, IndexError):
+                    pass
+            if val_rms is None:
+                try:
+                    val_rms = float(fila_mem[6])
+                except (ValueError, TypeError, IndexError):
+                    pass
+
+    # Prioridad C: archivo de procesamiento en disco (*_proc.csv)
+    if (val_mag is None or val_rms is None) and proc_rows and len(proc_rows) >= 2:
+        fila_disco = proc_rows[-1]
+        if len(fila_disco) >= 7 and fila_disco[2] not in ("Inicio", "Fallido"):
+            if val_mag is None:
+                try:
+                    val_mag = float(fila_disco[3])
+                except (ValueError, TypeError, IndexError):
+                    pass
+            if val_rms is None:
+                try:
+                    val_rms = float(fila_disco[6])
+                except (ValueError, TypeError, IndexError):
+                    pass
+
+    # Prioridad D: lectura directa del archivo RSA si existe
+    if (val_mag is None or val_rms is None) and existe_fast:
+        try:
+            res_rsa = lectura_rsa(nombre_evento, self.directorio_trabajo, '')
+            if res_rsa and res_rsa != 1 and len(res_rsa) > 0 and len(res_rsa[0]) > 15:
+                datos_s = res_rsa[0]
+                if val_rms is None:
+                    try:
+                        val_rms = float(datos_s[10])
+                    except (ValueError, TypeError, IndexError):
+                        pass
+                if val_mag is None:
+                    try:
+                        val_mag = float(datos_s[15])
+                    except (ValueError, TypeError, IndexError):
+                        pass
+        except Exception:
+            pass
+
+    # 4. Evaluar condiciones de inconveniente (ROJO) para eventos ya procesados
+    inconvenientes = []
+    if not existe_fast:
+        inconvenientes.append("No encuentra archivos FAST (.rsa)")
+    if val_mag is None or val_mag <= 0.0:
+        inconvenientes.append("Lectura de magnitud es 0")
+    if val_rms is None:
+        inconvenientes.append("RMS no determinado")
+    elif val_rms > 1.4:
+        inconvenientes.append(f"RMS mayor a 1.4 ({val_rms:.2f})")
+
+    if inconvenientes:
+        return 'INCONVENIENTE', "Inconveniente en procesamiento: " + ", ".join(inconvenientes)
+
+    # 5. Procesado exitoso (VERDE)
+    return 'EXITOSO', f"Evento procesado exitosamente (Mag: {val_mag:.1f}, RMS: {val_rms:.2f})"
+
+
+def aplicar_estilo_item_evento(self, idx, nombre_evento):
+    """
+    Aplica formato visual (color, peso tipográfico y tooltip) al ítem del combo de eventos:
+    - EXITOSO: Verde (#009600) + Negrita + Tooltip con Mag y RMS.
+    - INCONVENIENTE: Rojo (#C80000) + Negrita + Tooltip con detalles del inconveniente.
+    - PENDIENTE: Negro / estilo base + Fuente normal + Tooltip de pendiente.
+    """
+    estado, tooltip = evaluar_estado_evento(self, nombre_evento)
+
+    if estado == 'EXITOSO':
+        self.ui.cmbx_eventos.setItemData(idx, QBrush(QColor(0, 150, 0)), Qt.ForegroundRole)
+        font = QFont()
+        font.setBold(True)
+        self.ui.cmbx_eventos.setItemData(idx, font, Qt.FontRole)
+        self.ui.cmbx_eventos.setItemData(idx, tooltip, Qt.ToolTipRole)
+    elif estado == 'INCONVENIENTE':
+        self.ui.cmbx_eventos.setItemData(idx, QBrush(QColor(200, 0, 0)), Qt.ForegroundRole)
+        font = QFont()
+        font.setBold(True)
+        self.ui.cmbx_eventos.setItemData(idx, font, Qt.FontRole)
+        self.ui.cmbx_eventos.setItemData(idx, tooltip, Qt.ToolTipRole)
+    else:
+        self.ui.cmbx_eventos.setItemData(idx, QBrush(QColor(0, 0, 0)), Qt.ForegroundRole)
+        font = QFont()
+        font.setBold(False)
+        self.ui.cmbx_eventos.setItemData(idx, font, Qt.FontRole)
+        self.ui.cmbx_eventos.setItemData(idx, tooltip, Qt.ToolTipRole)
+
+
+def evento_esta_procesado(self, nombre_evento):
+    """
+    Determina si un evento ya ha sido procesado exitosamente.
+    Preserva compatibilidad con llamadores existentes.
+    """
+    estado, _ = evaluar_estado_evento(self, nombre_evento)
+    return estado == 'EXITOSO'
 
 
 def cargar_combo_eventos(self, text):
@@ -104,14 +331,15 @@ def cargar_combo_eventos(self, text):
             self.sismos_procesar.append(aux_sismo)
             idx = self.ui.cmbx_eventos.count()
             self.ui.cmbx_eventos.addItem(self.eventos[i][1])
-            if evento_esta_procesado(self, self.eventos[i][1]):
-                self.ui.cmbx_eventos.setItemData(idx, QBrush(QColor(200, 0, 0)), Qt.ForegroundRole)
-                font = QFont()
-                font.setBold(True)
-                self.ui.cmbx_eventos.setItemData(idx, font, Qt.FontRole)
-                self.ui.cmbx_eventos.setItemData(idx, "Evento ya procesado", Qt.ToolTipRole)
+            tipo_ev = self.eventos[i][2]
+            if tipo_ev == 'SISMO':
+                aplicar_estilo_item_evento(self, idx, self.eventos[i][1])
             else:
-                self.ui.cmbx_eventos.setItemData(idx, "Evento pendiente de procesamiento", Qt.ToolTipRole)
+                self.ui.cmbx_eventos.setItemData(idx, QBrush(QColor(0, 0, 0)), Qt.ForegroundRole)
+                font = QFont()
+                font.setBold(False)
+                self.ui.cmbx_eventos.setItemData(idx, font, Qt.FontRole)
+                self.ui.cmbx_eventos.setItemData(idx, f"Evento clasificado como {tipo_ev}", Qt.ToolTipRole)
     self.preparar_evento('')
 
 
@@ -244,32 +472,36 @@ class Procesar_evento(QWidget):
 
         # PANEL IZQUIERDO: UI principal
         self.panel_izquierdo = QWidget(self)
+        self.panel_izquierdo.setFixedWidth(250)
         layout_izq = QVBoxLayout(self.panel_izquierdo)
         layout_izq.setContentsMargins(0, 0, 0, 0)
 
         ruta_ui = os.path.abspath(os.path.join(ruta_proyecto, 'src', 'ui', 'Proceso.ui'))
         self.ui = uic.loadUi(ruta_ui)
         layout_izq.addWidget(self.ui)
-        layout_principal.addWidget(self.panel_izquierdo, 1)
+        layout_principal.addWidget(self.panel_izquierdo, 0)
 
         # PANEL CENTRAL: para incrustar estaciones_
         self.panel_central = QWidget(self)
         self.layout_central = QVBoxLayout(self.panel_central)
         self.layout_central.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.layout_central.setContentsMargins(0, 0, 0, 0)
-        layout_principal.addWidget(self.panel_central, 1)
+        self.panel_central.setVisible(False)
+        layout_principal.addWidget(self.panel_central, 0)
 
-        # PANEL DERECHO: mapa GIS embebido
+        # PANEL DERECHO: mapa GIS embebido (oculto hasta entrar a procesamiento)
         self.panel_derecho = QWidget(self)
         layout_der = QVBoxLayout(self.panel_derecho)
         layout_der.setContentsMargins(0, 0, 0, 0)
         self.widget_mapa = widget_grafico_mpl(self)
+        self.widget_mapa.setVisible(False)
         layout_der.addWidget(self.widget_mapa)
-        layout_principal.addWidget(self.panel_derecho, 2)
+        layout_principal.addWidget(self.panel_derecho, 1)
 
         # Visor matplotlib "propio" (por compatibilidad con código existente)
         self.visor = Figure(figsize=(8, 4), dpi=100)
         self.canvas = FigureCanvas(self.visor)
+        self.canvas.setVisible(False)
 
         # -----------------------------
         # 3) CONFIGURACIÓN INICIAL GUI
@@ -284,6 +516,7 @@ class Procesar_evento(QWidget):
         self.ui.Btn_Salir.clicked.connect(self.Salir_)
         self.ui.Btn_procesar.clicked.connect(self.procesar_)
         self.ui.Btn_reportar.clicked.connect(self.reportar_)
+        self.ui.Btn_acelerograma.clicked.connect(self.acelerograma_)
         self.ui.Btn_insertar.clicked.connect(self.insertar_)
 
         # Combos
@@ -322,9 +555,15 @@ class Procesar_evento(QWidget):
         # -----------------------------
         self.Abrir_archivo()  # Carga self.directorios, día, catálogo, etc.
 
-        # Estado inicial del mapa
-        self.actualizar_mapa([])
 
+    def mostrar_submensaje(self, texto, forzar=False):
+        """
+        Actualiza Lbl_submensajes únicamente cuando NO está activa la revisión
+        del archivo PDF temporal (o cuando se fuerza desde Salir_).
+        """
+        if getattr(self, 'revision_procesamiento', False) and not forzar:
+            return
+        self.ui.Lbl_submensajes.setText(texto)
 
     def activar_hilo(self):
         """
@@ -334,11 +573,11 @@ class Procesar_evento(QWidget):
             - minuto real
         """
         if self.evento_procesar[2] != "SISMO":
-            self.ui.Lbl_submensajes.setText("Evento no es SISMO — monitoreo no requerido.")
+            self.mostrar_submensaje("Evento no es SISMO — monitoreo no requerido.")
             return
 
         if not verificar_drives_virtuales(self.responsable_evento):
-            self.ui.Lbl_submensajes.setText("El Virtual no está conectado — monitoreo deshabilitado.")
+            self.mostrar_submensaje("El Virtual no está conectado — monitoreo deshabilitado.")
             return
 
         try:
@@ -375,10 +614,10 @@ class Procesar_evento(QWidget):
 
         except Exception as e:
             print("Error al obtener archivos FAST:", e)
-            self.ui.Lbl_submensajes.setText("Error al obtener archivos FAST")
+            self.mostrar_submensaje("Error al obtener archivos FAST")
             return
 
-        self.ui.Lbl_submensajes.setText(
+        self.mostrar_submensaje(
             "Monitorizando archivo(s) RSA…\n" + "\n".join(archivos_monitoreo)
         )
 
@@ -439,7 +678,7 @@ class Procesar_evento(QWidget):
                 self.eventos[idx_evento][canal_real + 3] = nueva
 
             # 4. Señal discreta en pantalla
-            self.ui.Lbl_submensajes.setText("Cambios almacenados (no guardados en disco aún).")
+            self.mostrar_submensaje("Cambios almacenados (no guardados en disco aún).")
             escritura_archivo(self.directorios['archivo_csv'], self.eventos) 
         except Exception as e:
             print("Error en _estaciones_devuelven_cambios:", e)
@@ -536,11 +775,7 @@ class Procesar_evento(QWidget):
             except Exception as e:
                 print("Error limpiando Virtual:", e)
 
-        try:
-            self.actualizar_mapa([])
-            print("Mapa reseteado.")
-        except Exception as e:
-            print("Error reseteando mapa:", e)
+        self.en_estaciones = False
 
         try:
             self.limpiar_panel_central()
@@ -548,20 +783,19 @@ class Procesar_evento(QWidget):
             print("Error limpiando panel central:", e)
 
         try:
+            evento_sel = self.ui.cmbx_eventos.currentText()
+            self.sincronizar_archivos_dia_y_periodos()
+
             idx_actual = self.ui.cmbx_eventos.currentIndex()
-            if idx_actual >= 0 and self.evento_procesar and self.evento_procesar[2] == 'SISMO':
-                fuente_roja = QBrush(QColor(200, 0, 0))
-                self.ui.cmbx_eventos.setItemData(idx_actual, fuente_roja, Qt.ForegroundRole)
-                font = QFont()
-                font.setBold(True)
-                self.ui.cmbx_eventos.setItemData(idx_actual, font, Qt.FontRole)
-                self.ui.cmbx_eventos.setItemData(idx_actual, "Evento ya procesado", Qt.ToolTipRole)
-            self.preparar_evento(self.ui.cmbx_eventos.currentText())
+            if idx_actual >= 0 and self.evento_procesar:
+                aplicar_estilo_item_evento(self, idx_actual, self.evento_procesar[1])
+            if evento_sel:
+                self.ui.cmbx_eventos.setCurrentText(evento_sel)
+                self.preparar_evento(evento_sel)
             print("Evento recargado.")
         except Exception as e:
             print("Error recargando evento:", e)
 
-        self.en_estaciones = False
         self.bandera_procesamiento = 0
         self.ui.grupo_carga.setEnabled(True)
         print("Cierre finalizado.")
@@ -628,48 +862,47 @@ class Procesar_evento(QWidget):
             except Exception as e:
                 print("Error limpiando Virtual:", e)
 
-        # 5) Resetear mapa
-        try:
-            self.actualizar_mapa([])
-            print("Mapa reseteado.")
-        except Exception as e:
-            print("Error reseteando mapa:", e)
-
-        # 6) Limpiar panel
+        # 5) Estado interno y limpiar panel
+        self.en_estaciones = False
         try:
             self.limpiar_panel_central()
         except Exception as e:
             print("Error limpiando panel central:", e)
 
-        # 7) Recargar evento
+        # 6) Recargar evento
         try:
+            evento_sel = self.ui.cmbx_eventos.currentText()
+            self.sincronizar_archivos_dia_y_periodos()
+
             idx_actual = self.ui.cmbx_eventos.currentIndex()
-            if idx_actual >= 0 and self.evento_procesar and self.evento_procesar[2] == 'SISMO':
-                fuente_roja = QBrush(QColor(200, 0, 0))
-                self.ui.cmbx_eventos.setItemData(idx_actual, fuente_roja, Qt.ForegroundRole)
-                font = QFont()
-                font.setBold(True)
-                self.ui.cmbx_eventos.setItemData(idx_actual, font, Qt.FontRole)
-                self.ui.cmbx_eventos.setItemData(idx_actual, "Evento ya procesado", Qt.ToolTipRole)
-            self.preparar_evento(self.ui.cmbx_eventos.currentText())
+            if idx_actual >= 0 and self.evento_procesar:
+                aplicar_estilo_item_evento(self, idx_actual, self.evento_procesar[1])
+            if evento_sel:
+                self.ui.cmbx_eventos.setCurrentText(evento_sel)
+                self.preparar_evento(evento_sel)
             print("Evento recargado.")
         except Exception as e:
             print("Error recargando evento:", e)
 
-        # 8) Estado interno
-        self.en_estaciones = False
+        # 7) Rehabilitar controles
         self.bandera_procesamiento = 0
         self.ui.grupo_carga.setEnabled(True)
         print("Cierre finalizado.")
 
     def limpiar_panel_central(self):
         """
-        Elimina cualquier widget incrustado en el panel central.
+        Elimina cualquier widget incrustado en el panel central y oculta los visores
+        del panel derecho mientras no se esté dentro de procesamiento.
         """
         if self.widget_central_activo is not None:
             self.widget_central_activo.setParent(None)
             self.widget_central_activo.deleteLater()
             self.widget_central_activo = None
+        self.panel_central.setVisible(False)
+        if hasattr(self, 'canvas') and self.canvas is not None:
+            self.canvas.setVisible(False)
+        if hasattr(self, 'widget_mapa') and self.widget_mapa is not None:
+            self.widget_mapa.setVisible(False)
 
     def incrustar_estaciones(self):
         """
@@ -679,6 +912,11 @@ class Procesar_evento(QWidget):
         self.ui.grupo_carga.setEnabled(False)
         # limpiar panel central
         self.limpiar_panel_central()
+        self.pagina = 0
+        self.panel_central.setVisible(True)
+        if self.panel_derecho.layout().indexOf(self.widget_mapa) == -1:
+            self.panel_derecho.layout().addWidget(self.widget_mapa)
+        self.widget_mapa.setVisible(True)
 
         # crear instancia
         self.widget_central_activo = estaciones_(
@@ -720,35 +958,22 @@ class Procesar_evento(QWidget):
         for i in reversed(range(self.panel_derecho.layout().count())):
             w = self.panel_derecho.layout().itemAt(i).widget()
             if w:
+                w.setVisible(False)
                 w.setParent(None)
 
         if modo == "mapa":
             # Insertar nuevamente el widget_mapa
             self.panel_derecho.layout().addWidget(self.widget_mapa)
+            self.widget_mapa.setVisible(True)
             self.actualizar_mapa(self.procesamiento)
 
 
         else:  # "senales"
-            # Crear visor para señales
-            from matplotlib.figure import Figure
-            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-
-            fig = Figure(figsize=(8,4), dpi=100)
-            canvas = FigureCanvas(fig)
-
-            # Graficar inmediatamente
-            try:
-                arch = self.evento_procesar[1]
-                arch = os.path.join(self.directorio_trabajo, arch[:8] + arch[9:15])
-                trc = leer_mseed(arch, 1)
-                t0 = trc[self.estaciones_eventos[0]][0].stats.starttime
-                t1 = trc[self.estaciones_eventos[0]][0].stats.endtime
-                grafico_evento_int(fig, trc, t0, t1, self.estaciones_eventos,
-                               self.parametros['HAB_GRAFICO'], 0, 0)
-            except:
-                pass
-
-            self.panel_derecho.layout().addWidget(canvas)
+            self.pagina = 0
+            self.panel_derecho.layout().addWidget(self.canvas)
+            self.canvas.setVisible(True)
+            if self.widget_central_activo is not None:
+                self.widget_central_activo.Graficar_()
 
 
 
@@ -766,7 +991,7 @@ class Procesar_evento(QWidget):
 
         # Archivo base del evento
         archivo = self.evento_procesar[1]
-        self.ui.Lbl_submensajes.setText("Esperando archivos del Virtual…")
+        self.mostrar_submensaje("Esperando archivos del Virtual…")
 
         # Crear un solo QTimer controlable
         self.timer_verificar = QTimer(self)
@@ -791,7 +1016,7 @@ class Procesar_evento(QWidget):
 
             # 4) Archivos listos → Detener timer y arrancar hilo
             self.timer_verificar.stop()
-            self.ui.Lbl_submensajes.setText(
+            self.mostrar_submensaje(
                 "Archivos del Virtual encontrados, iniciando monitoreo…"
             )
             self.iniciar_monitor_virtual()
@@ -905,20 +1130,24 @@ class Procesar_evento(QWidget):
             )
 
             if not self.intento_es_diferente(procesamiento_base, nuevo_proc):
-                self.ui.Lbl_submensajes.setText("RSA sin cambios útiles. No se agregó nuevo intento.")
+                self.mostrar_submensaje("RSA sin cambios útiles. No se agregó nuevo intento.")
                 print("GUI: intento repetido detectado, no se guarda.")
                 return
 
             escritura_archivo(self.directorios["archivo_procesamiento"], nuevo_proc)
             self.procesamiento = nuevo_proc
             self.actualizar_mapa(nuevo_proc)
+            idx_actual = self.ui.cmbx_eventos.currentIndex()
+            if idx_actual >= 0 and self.evento_procesar:
+                aplicar_estilo_item_evento(self, idx_actual, self.evento_procesar[1])
+                self.actualizar_estilo_combo_actual()
 
-            self.ui.Lbl_submensajes.setText("Procesamiento actualizado desde RSA.")
+            self.mostrar_submensaje("Procesamiento actualizado desde RSA.")
             print("GUI: procesamiento actualizado y mapa redibujado.")
 
         except Exception as e:
             print("Error en recalcular_procesamiento:", e)
-            self.ui.Lbl_submensajes.setText("Error al actualizar procesamiento.")
+            self.mostrar_submensaje("Error al actualizar procesamiento.")
 
 
 
@@ -947,7 +1176,7 @@ class Procesar_evento(QWidget):
         try:
             if not procesamiento:
                 self.widget_mapa.plot([], self.directorios['archivo_estaciones'])
-                self.ui.Lbl_submensajes.setText("Mapa listo — sin intento aún.")
+                self.mostrar_submensaje("Mapa listo — sin intento aún.")
                 return
 
             bandera = self.widget_mapa.plot(
@@ -958,15 +1187,15 @@ class Procesar_evento(QWidget):
             # Manejo de textos
             if isinstance(bandera, (list, tuple)):
                 if bandera[0]:
-                    self.ui.Lbl_submensajes.setText("Procesar con 6 fases mínimo.")
+                    self.mostrar_submensaje("Procesar con 6 fases mínimo.")
                 elif bandera[1]:
-                    self.ui.Lbl_submensajes.setText("Procesar con fases claras.")
+                    self.mostrar_submensaje("Procesar con fases claras.")
                 else:
-                    self.ui.Lbl_submensajes.setText("No Procesar.")
+                    self.mostrar_submensaje("No Procesar.")
 
         except Exception as e:
             print("Error al redibujar mapa:", e)
-            self.ui.Lbl_submensajes.setText("Error al dibujar mapa.")
+            self.mostrar_submensaje("Error al dibujar mapa.")
 
     def limpiar_estado(self):
         """
@@ -1040,15 +1269,60 @@ class Procesar_evento(QWidget):
         escritura_archivo(self.directorios['archivo_reporte'], self.eventos_reporte)
         escritura_archivo(self.directorios['archivo_catalogo'], self.catalogo)
 
+    def sincronizar_archivos_dia_y_periodos(self):
+        """
+        Recarga la información consolidada del día mediante `cargar_dia()`, escribe
+        todos los archivos oficiales del día (`_rep.csv`, `_cat.csv`, `.csv`,
+        `_resp.csv`, `_res.csv`, `.xml`) mediante `Guardar_dia()` y propaga en cascada
+        la actualización hacia la Semana ISO, el Mes y el Año correspondientes en
+        `Ecuador` (únicamente si sus archivos `_cat.csv` ya fueron emitidos, sin
+        regenerar PDFs).
+        """
+        (self.eventos_reporte,
+         self.catalogo,
+         self.eventos,
+         self.vector,
+         self.evento_canales,
+         self.root,
+         self.responsables,
+         self.resumen) = cargar_dia(self.directorios)
+        try:
+            self.catalogo, self.eventos_reporte, _ = sincronizar_otras_redes_dia(
+                self.directorios,
+                self.catalogo,
+                self.eventos_reporte,
+                self.eventos,
+            )
+        except Exception:
+            pass
+        Guardar_dia(
+            self.eventos_reporte,
+            self.catalogo,
+            self.eventos,
+            self.root,
+            self.responsables,
+            self.resumen,
+            self.directorios,
+        )
+        actualizar_periodos_emitidos_desde_fecha(
+            self.directorios.get('archivo_csv', self.archivo),
+            self.directorio_trabajo,
+        )
+
     def actualizar_estilo_combo_actual(self):
-        """Actualiza el color del texto del QComboBox según si el evento seleccionado está procesado"""
+        """Actualiza el color del texto del QComboBox según el estado del evento seleccionado"""
         idx_actual = self.ui.cmbx_eventos.currentIndex()
         if idx_actual >= 0:
             color_item = self.ui.cmbx_eventos.itemData(idx_actual, Qt.ForegroundRole)
-            if color_item and isinstance(color_item, QBrush) and color_item.color() == QColor(200, 0, 0):
-                self.ui.cmbx_eventos.setStyleSheet("QComboBox { color: #C80000; font-weight: bold; }")
-            else:
-                self.ui.cmbx_eventos.setStyleSheet("")
+            if color_item and isinstance(color_item, QBrush):
+                color_rgb = color_item.color()
+                if color_rgb == QColor(200, 0, 0):
+                    self.ui.cmbx_eventos.setStyleSheet("QComboBox { color: #C80000; font-weight: bold; }")
+                    return
+                elif color_rgb == QColor(0, 150, 0):
+                    self.ui.cmbx_eventos.setStyleSheet("QComboBox { color: #009600; font-weight: bold; }")
+                    return
+            self.ui.cmbx_eventos.setStyleSheet("")
 
     def preparar_evento(self, text):
         """
@@ -1106,15 +1380,128 @@ class Procesar_evento(QWidget):
         )
         self.estaciones_eventos_total = self.estaciones_eventos
 
-        # Cada vez que se prepara evento, limpiar procesamiento actual y mapa
+        # Cada vez que se prepara evento, limpiar procesamiento actual
         self.procesamiento = []
-        self.actualizar_mapa(self.procesamiento)
+        if self.en_estaciones:
+            self.actualizar_mapa(self.procesamiento)
+
+        es_no_reportable = self.evento_procesar[2] in ('Ruido', 'CONTROL')
+        if hasattr(self.ui, 'Btn_reportar'):
+            self.ui.Btn_reportar.setEnabled(not es_no_reportable)
+        if hasattr(self.ui, 'Btn_acelerograma'):
+            self.ui.Btn_acelerograma.setEnabled(not es_no_reportable)
+        if hasattr(self.ui, 'Btn_insertar'):
+            self.ui.Btn_insertar.setEnabled(not es_no_reportable)
 
         self.actualizar_estilo_combo_actual()
+
+    def asegurar_extraccion_sis(self, nombre_evento):
+        """
+        Garantiza que un evento reclasificado a SISMO cuente con su archivo binario .sis
+        en la carpeta dia/. Si no existe, lo extrae utilizando los datos de archivo_auxiliar
+        y los registros continuos .mseed.
+        """
+        stem = Path(nombre_evento).stem
+        dir_dia = self.directorios.get('Directorio_dia', '')
+        archivo_sis = os.path.join(dir_dia, f"{stem}.sis")
+
+        if os.path.exists(archivo_sis):
+            print(f"Archivo .sis ya existe para {nombre_evento}: {archivo_sis}")
+            return True
+
+        print(f"Archivo .sis no existe para {nombre_evento}. Iniciando extracción automática...")
+
+        # 1. Localizar el evento en archivo_auxiliar (AAMMDD_aux.csv)
+        arch_aux = self.directorios.get('archivo_auxiliar', '')
+        filas_aux = lectura_archivo(arch_aux) if arch_aux and os.path.exists(arch_aux) else []
+        fila_aux = None
+        idx_aux = -1
+
+        for i, fila in enumerate(filas_aux):
+            if fila and len(fila) > 1 and Path(fila[1]).stem == stem:
+                fila_aux = fila
+                idx_aux = i
+                break
+
+        if fila_aux:
+            fila_aux[2] = 'SISMO'
+            filas_aux[idx_aux] = fila_aux
+            try:
+                escritura_archivo(arch_aux, filas_aux)
+            except Exception as e:
+                print(f"Aviso actualizando archivo_auxiliar: {e}")
+        else:
+            # Si no estaba en auxiliar, intentar construir fila básica desde la marca de tiempo
+            try:
+                base_limpia = stem.replace('_', '')
+                if len(base_limpia) == 12:
+                    hh, mm, ss = int(base_limpia[6:8]), int(base_limpia[8:10]), int(base_limpia[10:12])
+                elif len(base_limpia) == 14:
+                    hh, mm, ss = int(base_limpia[8:10]), int(base_limpia[10:12]), int(base_limpia[12:14])
+                else:
+                    hh, mm, ss = 12, 0, 0
+
+                segundos_marca = hh * 3600 + mm * 60 + ss
+                t_ini_calc = max(0, segundos_marca - 20)
+                t_fin_calc = segundos_marca + 100
+                fila_aux = [
+                    '0',
+                    f"{stem}.sis",
+                    'SISMO',
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    str(t_ini_calc),
+                    str(t_fin_calc),
+                    self.responsable_evento if hasattr(self, 'responsable_evento') else '',
+                    "",
+                    str(segundos_marca)
+                ]
+                filas_aux.append(fila_aux)
+                if arch_aux:
+                    escritura_archivo(arch_aux, filas_aux)
+            except Exception as e:
+                print(f"No se pudo construir fila auxiliar para {nombre_evento}: {e}")
+                return False
+
+        # 2. Ejecutar extracción mediante rsa_utilidades.extraccion
+        try:
+            from rsa_utilidades import extraccion
+            evento_extraido = extraccion(fila_aux, [], self.archivo, False)
+
+            if os.path.exists(archivo_sis):
+                print(f"Extracción exitosa. Archivo .sis generado en: {archivo_sis}")
+                if evento_extraido and len(evento_extraido) > 3:
+                    for idx_ev, ev in enumerate(self.eventos):
+                        if Path(ev[1]).stem == stem:
+                            self.eventos[idx_ev] = evento_extraido
+                            break
+                    escritura_archivo(self.directorios['archivo_csv'], self.eventos)
+
+                QMessageBox.information(
+                    self.window(),
+                    "Extracción Exitosa",
+                    f"Se ha extraído exitosamente el archivo .sis para el evento:\n{stem}.sis\n\nEl evento ya está listo para ser procesado."
+                )
+                return True
+            else:
+                QMessageBox.warning(
+                    self.window(),
+                    "Aviso de Extracción",
+                    f"No se pudo generar el archivo .sis para:\n{stem}.sis\n\nVerifique que los registros continuos .mseed del día estén disponibles."
+                )
+                return False
+        except Exception as e:
+            print(f"Error ejecutando extraccion para {nombre_evento}: {e}")
+            QMessageBox.warning(
+                self.window(),
+                "Error de Extracción",
+                f"Ocurrió un error al extraer el archivo .sis:\n{e}"
+            )
+            return False
 
     def cambio_evento(self, text):
         """
         Cambia el tipo de evento del registro actual.
+        Si se reclasifica a SISMO, garantiza la extracción del archivo .sis.
         """
         message_box = QMessageBox(
             QMessageBox.Question,
@@ -1125,27 +1512,26 @@ class Procesar_evento(QWidget):
         )
         result = message_box.exec_()
         if result == QMessageBox.Yes:
+            nuevo_tipo = self.ui.Cmb_bx_tipo_evento.currentText()
+            evento_modificado = None
             for i, evento in enumerate(self.eventos):
                 if self.evento_procesar and self.evento_procesar[1] == evento[1]:
-                    self.eventos[i][2] = self.ui.Cmb_bx_tipo_evento.currentText()
+                    self.eventos[i][2] = nuevo_tipo
+                    evento_modificado = self.eventos[i]
                     break
 
-        escritura_archivo(self.directorios['archivo_csv'], self.eventos)
-        (self.catalogo,
-         self.eventos_reporte) = guardar_informacion_diaria(
-            self.directorios['archivo_csv'],
-            self.directorio_trabajo,
-            self.catalogo,
-            self.eventos
-        )
-        (self.eventos_reporte,
-         self.catalogo,
-         self.eventos,
-         self.vector,
-         self.evento_canales,
-         self.root,
-         self.responsables,
-         self.resumen) = cargar_dia(self.directorios)
+            # Si se cambia a SISMO, verificar y extraer .sis si no existe en disco
+            if nuevo_tipo == 'SISMO' and evento_modificado:
+                self.asegurar_extraccion_sis(evento_modificado[1])
+
+            escritura_archivo(self.directorios['archivo_csv'], self.eventos)
+            self.sincronizar_archivos_dia_y_periodos()
+
+            # Refrescar la lista de eventos para reflejar el nuevo estado visual
+            cargar_combo_eventos(self, self.ui.cmbx_t_evento.currentText())
+            if evento_modificado:
+                self.ui.cmbx_eventos.setCurrentText(evento_modificado[1])
+                self.preparar_evento(evento_modificado[1])
 
     def cargar_tipo_evento(self, text):
         """
@@ -1210,9 +1596,10 @@ class Procesar_evento(QWidget):
             # Guardar archivo inicial
             escritura_archivo(self.directorios["archivo_procesamiento"], self.procesamiento)
         # ==============================================================
-        # (2) ACTUALIZAR MAPA INMEDIATAMENTE (ANTES DE ACTIVAR HILO)
+        # (2) MOSTRAR Y ACTUALIZAR MAPA INMEDIATAMENTE (ANTES DE ACTIVAR HILO)
         # ==============================================================
-        self.actualizar_mapa(self.procesamiento)
+        self.en_estaciones = True
+        self.invertir_mapa_seniales("mapa")
 
 
         # ==============================================================
@@ -1305,21 +1692,42 @@ class Procesar_evento(QWidget):
         """
         Genera el reporte individual del sismo actual.
         """
-        if not self.catalogo or not self.evento_reporte_escogido:
+        if not self.catalogo or not getattr(self, 'evento_reporte_escogido', None):
             return
         generar_reporte_sismo(
             self.catalogo,
             self.evento_reporte_escogido,
             self.canales,
             self.trCanal,
-            self.archivo_reporte
+            self.archivo_reporte,
+            self.directorio_trabajo
         )
 
-    def insertar_(self, text):
+    def acelerograma_(self):
         """
-        Abre el diálogo de inserción de eventos de otras redes.
+        Abre el selector de estaciones y genera los reportes acelerográficos del evento actual.
         """
+        if not getattr(self, 'eventos', None) or not getattr(self, 'evento_reporte_escogido', None):
+            return
+        generar_reporte_acelerograma(
+            self.eventos,
+            self.indice_local - 1,
+            self.catalogo,
+            self.evento_reporte_escogido,
+            self.archivo_escogido
+        )
+
+    def insertar_(self, text=False):
+        """
+        Abre el diálogo de inserción de eventos de otras redes, persiste el
+        catálogo actualizado en disco y sincroniza en cascada sin perder datos.
+        """
+        if not getattr(self, 'evento_reporte_escogido', None):
+            return
+        evento_sel = self.ui.cmbx_eventos.currentText()
         reporte_(self).exec_()
+        self.catalogo = ordenar_y_eliminar_duplicados(self.catalogo, 0)
+        self.guardar_evento()
         (self.catalogo,
          self.eventos_reporte) = guardar_informacion_diaria(
             self.directorios['archivo_csv'],
@@ -1329,6 +1737,10 @@ class Procesar_evento(QWidget):
         )
         self.catalogo = ordenar_y_eliminar_duplicados(self.catalogo, 0)
         self.guardar_evento()
+        self.sincronizar_archivos_dia_y_periodos()
+        if evento_sel:
+            self.ui.cmbx_eventos.setCurrentText(evento_sel)
+            self.preparar_evento(evento_sel)
 
     # ==========================================================
     #  BLOQUE: SALIDA Y CIERRE
@@ -1337,7 +1749,8 @@ class Procesar_evento(QWidget):
     def Salir_(self):
         """
         Genera un reporte temporal para revisión y controla el flujo de salida.
-        Mantiene la lógica original, pero sin tocar closeEvent.
+        Preserva íntegramente el estado y acceso a procesamiento para que el usuario
+        pueda corregir cualquier evento durante la revisión del PDF.
         """
         print("Saliendo sin procesamiento", self.horario)
 
@@ -1348,66 +1761,130 @@ class Procesar_evento(QWidget):
         elif self.ui.radioButton_revision.isChecked():
             self.ui.checkBox_detalles.setEnabled(True)
 
+        # Sincronizar de forma transparente con IGEPN y USGS si hay conexión a internet,
+        # y luego actualizar todos los archivos oficiales del día (_cat.csv, _rep.csv,
+        # _res.csv, _resp.csv, .csv, .xml) y propagar en cascada a Semana, Mes y Año
+        try:
+            self.catalogo, self.eventos_reporte, _ = sincronizar_otras_redes_dia(
+                self.directorios,
+                self.catalogo,
+                self.eventos_reporte,
+                self.eventos,
+            )
+        except Exception:
+            pass
+        self.sincronizar_archivos_dia_y_periodos()
+        tree = ET.ElementTree(self.root)
+
         if not self.ui.checkBox_detalles.isChecked():
             self.close()
             return
 
-        archivo_reporte_temporal = os.path.join(
-            self.directorios['Directorio_base'],
-            Path(self.archivo).name[:-6] + '_' +
+        evento_actual_combo = self.ui.cmbx_eventos.currentText()
+        nombre_limpio = Path(self.archivo).stem.replace('_', '')
+        prefijo_fecha = nombre_limpio[:8]
+
+        base_temporal = (
+            prefijo_fecha + '_' +
             self.horario[:2] + '_' +
             self.horario[8:10] + '_' +
-            self.responsable + '.pdf'
+            self.responsable
         )
+        archivo_reporte_temporal = os.path.join(
+            self.directorios['Directorio_base'],
+            base_temporal + '.pdf'
+        )
+        archivo_catalogo_temporal = os.path.join(
+            self.directorios['Directorio_base'],
+            base_temporal + '_cat.csv'
+        )
+        self.archivo_catalogo_temporal = archivo_catalogo_temporal
 
-        nombre = Path(self.archivo).stem
-        fecha = QDate(int(nombre[0:4]), int(nombre[4:6]), int(nombre[6:8]))
+        fecha = QDate(int(prefijo_fecha[0:4]), int(prefijo_fecha[4:6]), int(prefijo_fecha[6:8]))
 
-        # Recargar datos del día
-        (self.eventos_reporte,
-         self.catalogo,
-         self.eventos,
-         self.vector,
-         self.evento_canales,
-         self.root,
-         self.responsables,
-         self.resumen) = cargar_dia(self.directorios)
+        # Restaurar y sincronizar el estado completo del combo y del evento activo
+        # para mantener exactamente el mismo acceso a procesamiento durante la revisión del PDF
+        for idx_c in range(self.ui.cmbx_eventos.count()):
+            nom_ev = self.ui.cmbx_eventos.itemText(idx_c)
+            aplicar_estilo_item_evento(self, idx_c, nom_ev)
 
-        escritura_archivo(self.directorios['archivo_responsables'], self.responsables)
-        tree = ET.ElementTree(self.root)
-        self.estaciones_eventos = []
+        if evento_actual_combo:
+            self.ui.cmbx_eventos.setCurrentText(evento_actual_combo)
+            self.preparar_evento(evento_actual_combo)
+        self.ui.grupo_carga.setEnabled(True)
 
-        resumen_responsables = self.responsables[0]
-        if self.horario == '00:00 - 12:00':
-            resumen_responsables.append(self.responsables[1])
-        elif self.horario == '12:00 - 18:00':
-            resumen_responsables.append(self.responsables[2])
-        else:
-            resumen_responsables.append(self.responsables[3])
+        resumen_responsables = self.responsables[0][:] if self.responsables else []
+        fila_turno_resp = None
+        if self.responsables and len(self.responsables) >= 4:
+            if self.horario == '00:00 - 12:00':
+                fila_turno_resp = self.responsables[1]
+            elif self.horario == '12:00 - 18:00':
+                fila_turno_resp = self.responsables[2]
+            else:
+                fila_turno_resp = self.responsables[3]
+            resumen_responsables.append(fila_turno_resp)
 
         if not self.revision_procesamiento:
             subtitulo_reporte = "Reporte temporal"
             mapa_resumen = 1
             tipo_mapa = 0
-            resumen_responsables = 0
+            resumen_responsables_rep = 0
             bandera_relleno = True
             modo_reporte = MODO_PERIODO_FRANJAS
             bandera_firma = False
+
+            # Construir desde cero el catálogo temporal exclusivo del turno seleccionado
+            # incluyendo tanto los sismos procesados como los dummies de todos los demás
+            # eventos del período (sin alterar self.catalogo ni el _cat.csv oficial)
+            catalogo_temporal = construir_catalogo_temporal_turno(
+                self.catalogo,
+                eventos=self.eventos_reporte,
+                horario=self.horario,
+                insertar_no_procesado=True
+            )
+            escritura_archivo(archivo_catalogo_temporal, catalogo_temporal)
+
+            # Resumen temporal de conteos exclusivo para el turno seleccionado
+            if fila_turno_resp and len(fila_turno_resp) >= 10:
+                resumen_temporal = [
+                    ["SISMO", "FF", "FC", "TELESISMOS", "Local_CONTROL", "INDEFINIDO", "Ruido"],
+                    [
+                        int(fila_turno_resp[3]),  # SIS.
+                        int(fila_turno_resp[4]),  # FF
+                        int(fila_turno_resp[5]),  # FC
+                        int(fila_turno_resp[7]),  # TEL.
+                        int(fila_turno_resp[8]),  # Local_CONTROL.
+                        int(fila_turno_resp[6]),  # IND.
+                        int(fila_turno_resp[9]),  # Ruido
+                    ]
+                ]
+            else:
+                resumen_temporal = [list(f) for f in self.resumen] if self.resumen else []
+
+            # Verificar que el PDF temporal previo no esté bloqueado en el lector antes de regenerarlo
+            if os.path.exists(archivo_reporte_temporal):
+                for _ in range(3):
+                    try:
+                        os.remove(archivo_reporte_temporal)
+                        break
+                    except PermissionError:
+                        mensaje = " Archivo " + archivo_reporte_temporal + " en uso\nCiérrelo para actualizar el reporte."
+                        QMessageBox.information(self, "AVISO", mensaje)
 
             reporte_resumen_modos(
                 archivo_reporte_temporal,
                 subtitulo_reporte,
                 fecha,
                 fecha,
-                self.catalogo,
-                self.resumen,
+                catalogo_temporal,
+                resumen_temporal,
                 mapa_resumen,
                 tipo_mapa,
                 modo_reporte,
-                self.estaciones_eventos,
+                [],
                 self.directorio_trabajo,
                 tree,
-                resumen_responsables,
+                resumen_responsables_rep,
                 self.eventos_reporte,
                 bandera_firma,
                 bandera_relleno,
@@ -1439,7 +1916,10 @@ class Procesar_evento(QWidget):
         if result == QMessageBox.Yes:
             for _ in range(3):
                 try:
-                    os.remove(archivo_reporte_temporal)
+                    if os.path.exists(archivo_reporte_temporal):
+                        os.remove(archivo_reporte_temporal)
+                    if os.path.exists(archivo_catalogo_temporal):
+                        os.remove(archivo_catalogo_temporal)
                     break
                 except PermissionError:
                     mensaje = " Archivo " + archivo_reporte_temporal + " en uso\nCiérrelo"
@@ -1453,12 +1933,19 @@ class Procesar_evento(QWidget):
     def closeEvent(self, event):
         """
         Cierre limpio:
+          - Elimina archivo de catálogo temporal del turno si existiera
           - Detiene hilo de monitoreo
           - Limpia panel central
           - Limpia estado gráfico
           - Emite señal de cerrado
         Sin operaciones pesadas de IO ni aperturas de ventanas.
         """
+        cat_tmp = getattr(self, 'archivo_catalogo_temporal', None)
+        if cat_tmp and os.path.exists(cat_tmp):
+            try:
+                os.remove(cat_tmp)
+            except Exception:
+                pass
         self.detener_monitor_virtual()
         self.limpiar_panel_central()
         self.limpiar_estado()
@@ -1549,7 +2036,7 @@ class estaciones_(QWidget):
         self.responsable = responsable
         self.numero_estaciones = len(self.estaciones_eventos)
 
-        self.setFixedSize(600, 600)
+        self.setFixedSize(495, 550)
 
         # Estructuras internas
         self.ck_box_hab_canal = {}
@@ -1576,14 +2063,14 @@ class estaciones_(QWidget):
     # ===============================================================
 
     def _crear_cabeceras(self):
-        QLabel("ESTACIÓN", self).setGeometry(20, 20, 80, 16)
-        QLabel("CÓDIGO", self).setGeometry(130, 20, 80, 16)
-        QLabel("HAB", self).setGeometry(210, 20, 40, 16)
-        QLabel("CANAL", self).setGeometry(250, 20, 50, 16)
-        QLabel("FILTRO", self).setGeometry(315, 20, 50, 16)
-        QLabel("ORD", self).setGeometry(370, 20, 40, 16)
-        QLabel("f inf", self).setGeometry(415, 20, 45, 16)
-        QLabel("f sup", self).setGeometry(455, 20, 45, 16)
+        QLabel("ESTACIÓN", self).setGeometry(15, 20, 80, 16)
+        QLabel("CÓDIGO", self).setGeometry(145, 20, 60, 16)
+        QLabel("HAB", self).setGeometry(205, 20, 35, 16)
+        QLabel("CANAL", self).setGeometry(242, 20, 50, 16)
+        QLabel("FILTRO", self).setGeometry(305, 20, 50, 16)
+        QLabel("ORD", self).setGeometry(360, 20, 40, 16)
+        QLabel("f inf", self).setGeometry(405, 20, 40, 16)
+        QLabel("f sup", self).setGeometry(445, 20, 40, 16)
 
     # ===============================================================
     #  TABLA DE ESTACIONES
@@ -1601,20 +2088,20 @@ class estaciones_(QWidget):
 
             # Nombre
             self.lbl_nombre[fila] = QLabel(nombre, self)
-            self.lbl_nombre[fila].setGeometry(15, fila * 25 + 45, 150, 20)
+            self.lbl_nombre[fila].setGeometry(15, fila * 25 + 45, 130, 20)
 
             # Código
             self.lbl_codigo[fila] = QLabel(codigo, self)
-            self.lbl_codigo[fila].setGeometry(150, fila * 25 + 45, 80, 20)
+            self.lbl_codigo[fila].setGeometry(148, fila * 25 + 45, 55, 20)
 
             # Habilitación
             self.ck_box_hab_canal[fila] = QCheckBox(self)
-            self.ck_box_hab_canal[fila].setGeometry(210, fila * 25 + 45, 20, 20)
+            self.ck_box_hab_canal[fila].setGeometry(208, fila * 25 + 45, 20, 20)
             self.ck_box_hab_canal[fila].setChecked(dato[5:6] == '1')
 
             # Canal físico (1,2,3)
             self.spbox_canal[fila] = QSpinBox(self)
-            self.spbox_canal[fila].setGeometry(250, fila * 25 + 45, 40, 20)
+            self.spbox_canal[fila].setGeometry(245, fila * 25 + 45, 40, 20)
             self.spbox_canal[fila].setRange(1, 3)
             self.spbox_canal[fila].setValue(int(dato[4:5]))
 
@@ -1624,24 +2111,24 @@ class estaciones_(QWidget):
             fsup = int(self.filtros[fila][4:6])
 
             self.ck_box_filtro[fila] = QCheckBox(self)
-            self.ck_box_filtro[fila].setGeometry(320, fila * 25 + 45, 20, 20)
+            self.ck_box_filtro[fila].setGeometry(312, fila * 25 + 45, 20, 20)
             self.ck_box_filtro[fila].setChecked(orden != 0)
 
             # Orden
             self.spbox_fil_orden[fila] = QSpinBox(self)
-            self.spbox_fil_orden[fila].setGeometry(365, fila * 25 + 45, 40, 20)
+            self.spbox_fil_orden[fila].setGeometry(355, fila * 25 + 45, 40, 20)
             self.spbox_fil_orden[fila].setRange(1, 10)
             self.spbox_fil_orden[fila].setValue(orden if orden else 2)
 
             # Frecuencia inferior
             self.spbox_fil_finf[fila] = QSpinBox(self)
-            self.spbox_fil_finf[fila].setGeometry(410, fila * 25 + 45, 40, 20)
+            self.spbox_fil_finf[fila].setGeometry(400, fila * 25 + 45, 40, 20)
             self.spbox_fil_finf[fila].setRange(1, 10)
             self.spbox_fil_finf[fila].setValue(finf if orden else 1)
 
             # Frecuencia superior
             self.spbox_fil_fsup[fila] = QSpinBox(self)
-            self.spbox_fil_fsup[fila].setGeometry(455, fila * 25 + 45, 40, 20)
+            self.spbox_fil_fsup[fila].setGeometry(445, fila * 25 + 45, 40, 20)
             self.spbox_fil_fsup[fila].setRange(5, 20)
             self.spbox_fil_fsup[fila].setValue(fsup if orden else 10)
 
@@ -1650,31 +2137,43 @@ class estaciones_(QWidget):
     # ===============================================================
 
     def _crear_botones_accion(self):
-        # Graficar
-        self.Btn_graficar = QPushButton("Señales", self)
-        self.Btn_graficar.setGeometry(235, 500, 70, 25)
-        self.Btn_graficar.clicked.connect(self.Graficar_)
+        # Botón eventual de avance de página (solo visible cuando se selecciona "Señales")
+        self.Btn_pagina = QPushButton("Av. Pág", self)
+        self.Btn_pagina.setGeometry(190, 500, 85, 25)
+        self.Btn_pagina.setVisible(False)
+        self.Btn_pagina.clicked.connect(self.cambio_pagina)
 
-
-        # Salir
+        # Salir (reubicado a la izquierda dentro del ancho de la tabla para ampliar zona gráfica)
         self.Btn_salir = QPushButton("Salir", self)
-        self.Btn_salir.setGeometry(500, 500, 70, 25)
+        self.Btn_salir.setGeometry(405, 500, 80, 25)
         self.Btn_salir.clicked.connect(self.close)
         
         # ----------- OPCIONES DE VISTA -----------
         self.radio_mapa = QRadioButton("Mapa", self)
-        self.radio_mapa.setGeometry(20, 500, 80, 25)
+        self.radio_mapa.setGeometry(15, 500, 75, 25)
         self.radio_mapa.setChecked(True)
-        self.radio_mapa.toggled.connect(lambda estado: 
-                                        estado and self.senal_cambio_vista.emit("mapa")
-                                        )
+        self.radio_mapa.toggled.connect(self._al_cambiar_vista_mapa)
 
         self.radio_senales = QRadioButton("Señales", self)
-        self.radio_senales.setGeometry(100, 500, 80, 25)
-        self.radio_senales.toggled.connect(lambda estado: 
-                                           estado and self.senal_cambio_vista.emit("senales")
-                                           )
-        
+        self.radio_senales.setGeometry(95, 500, 85, 25)
+        self.radio_senales.toggled.connect(self._al_cambiar_vista_senales)
+
+    def _al_cambiar_vista_mapa(self, estado):
+        if estado:
+            self.Btn_pagina.setVisible(False)
+            self.senal_cambio_vista.emit("mapa")
+
+    def _al_cambiar_vista_senales(self, estado):
+        if estado:
+            self.Btn_pagina.setVisible(True)
+            self.senal_cambio_vista.emit("senales")
+
+    def cambio_pagina(self):
+        self.parent.pagina = self.parent.pagina + 1
+        auxiliar = self.parent.pagina * 6
+        if auxiliar >= len(self.estaciones_eventos):
+            self.parent.pagina = 0
+        self.Graficar_()
 
     # ===============================================================
     #  UBICACIÓN / MAPA
@@ -1715,7 +2214,7 @@ class estaciones_(QWidget):
                 self.estaciones_eventos,
                 self.parametros['HAB_GRAFICO'],
                 0,
-                0
+                self.parent.pagina
             )
         except Exception as e:
             print("Error en graficar:", e)
@@ -1794,68 +2293,123 @@ class estaciones_(QWidget):
 
 class reporte_(QDialog):
     def __init__(self, parent=None):
-        super(reporte_,self).__init__()
-        super().__init__(parent)
-        self.parent=parent
-        QDialog.__init__(self)
+        super(reporte_, self).__init__(parent)
+        self.parent = parent
         # Cargar la interfaz desde el archivo .ui directamente en esta instancia
-        ruta_ui =  os.path.join(ruta_proyecto,"src", "ui", "secundaria.ui")
+        ruta_ui = os.path.join(ruta_proyecto, "src", "ui", "secundaria.ui")
         ruta_ui = os.path.abspath(ruta_ui)
         uic.loadUi(ruta_ui, self)
-        self.lbl_grafico_0=QLabel("Página principal",self)
-        self.lbl_grafico_0.setGeometry(30, 20, 141, 21)  #setGeometry(x, y, width, height)
-        self.lbl_grafico_1=QLabel("Página secundaria",self)
-        self.lbl_grafico_1.setGeometry(30, 164, 141, 21)
-        self.lbl_grafico_2=QLabel("RED",self)
-        self.lbl_grafico_2.setGeometry(300, 90, 51, 40)
-        self.lbl_grafico_3=QLabel("TIPO DE MAGNITUD",self)
-        self.lbl_grafico_3.setGeometry(220, 130, 100, 40)
-        self.textEdit=QTextEdit(self)
-        self.textEdit.setGeometry(30, 44, 151, 121)
-        self.textEdit_2=QTextEdit(self)
-        self.textEdit_2.setGeometry(30, 190, 151, 31)
+        self.setFixedSize(520, 290)
+        nombre_ev = ""
+        if self.parent and getattr(self.parent, 'evento_reporte_escogido', None):
+            nombre_ev = str(self.parent.evento_reporte_escogido[0][1]).strip()
+        self.setWindowTitle(f"OTRAS REDES — Evento: {nombre_ev}" if nombre_ev else "OTRAS REDES")
+
+        self.lbl_grafico_0 = QLabel("Página principal", self)
+        self.lbl_grafico_0.setGeometry(25, 15, 220, 21)
+        self.lbl_grafico_1 = QLabel("Página secundaria", self)
+        self.lbl_grafico_1.setGeometry(25, 162, 220, 21)
+        self.lbl_grafico_2 = QLabel("RED", self)
+        self.lbl_grafico_2.setGeometry(290, 82, 80, 30)
+        self.lbl_grafico_3 = QLabel("TIPO DE MAGNITUD", self)
+        self.lbl_grafico_3.setGeometry(280, 126, 110, 30)
+
+        self.textEdit = QTextEdit(self)
+        self.textEdit.setGeometry(25, 38, 240, 120)
+        self.textEdit_2 = QTextEdit(self)
+        self.textEdit_2.setGeometry(25, 185, 240, 35)
+
         self.Btn_limpiar = QPushButton("Limpiar/Iniciar", self)
-        self.Btn_limpiar.setGeometry(360, 50, 111, 31)
+        self.Btn_limpiar.setGeometry(390, 38, 111, 31)
         self.Btn_limpiar.setEnabled(True)
         self.Btn_limpiar.clicked.connect(self.Limpiar_)
         self.Btn_limpiar.clearFocus()
-        self.cmbx_red = QComboBox( self)
-        self.cmbx_red.setGeometry(360, 100, 111, 21)
-        self.cmbx_tipo_mag = QComboBox( self)
-        self.cmbx_tipo_mag.setGeometry(360, 140, 111, 21)
-        lista_filtros = [" ","IGEPN", "USGS", "Otras redes"]
+
+        self.cmbx_red = QComboBox(self)
+        self.cmbx_red.setGeometry(390, 86, 111, 24)
+        self.cmbx_tipo_mag = QComboBox(self)
+        self.cmbx_tipo_mag.setGeometry(390, 130, 111, 24)
+        lista_filtros = [" ", "IGEPN", "USGS", "Otras redes"]
         self.cmbx_red.addItems(lista_filtros)
-        lista_filtros = [" ","M", "MLv", "Md","Mc","Mw","Mb"]
-        self.cmbx_tipo_mag.addItems(lista_filtros)       
+        lista_filtros = [" ", "M", "MLv", "Md", "Mc", "Mw", "Mb"]
+        self.cmbx_tipo_mag.addItems(lista_filtros)
+        self.cmbx_red.currentIndexChanged.connect(self.al_cambiar_red)
+
         self.Btn_insertar = QPushButton("Insertar", self)
-        self.Btn_insertar.setGeometry(360, 180, 111, 31)
+        self.Btn_insertar.setGeometry(390, 185, 111, 35)
         self.Btn_insertar.setEnabled(True)
         self.Btn_insertar.clicked.connect(self.Insertar_)
         self.Btn_insertar.clearFocus()
-        #self.evento_reporte_escogido=self.parent.evento_reporte_escogido
-        #self.indice=self.parent.indice_evento_procesar
+
+        self.lbl_estado_redes = QLabel("", self)
+        self.lbl_estado_redes.setGeometry(25, 232, 476, 45)
+        self.lbl_estado_redes.setWordWrap(True)
+        self.actualizar_resumen_redes()
+
+    def al_cambiar_red(self, indice_red):
+        """
+        Al seleccionar IGEPN o USGS, consulta automáticamente en línea si existe
+        un sismo coincidente (±60 s) para el evento actual y precarga los datos.
+        """
+        if indice_red not in (1, 2):
+            return
+        if self.textEdit.toPlainText().strip():
+            return
+        if not self.parent or not getattr(self.parent, 'evento_reporte_escogido', None):
+            return
+        nombre_ev = str(self.parent.evento_reporte_escogido[0][1]).strip()
+        nombre_red = "IGEPN" if indice_red == 1 else "USGS"
+        sismo_web = buscar_evento_otra_red_en_linea(nombre_ev, self.parent.catalogo, nombre_red)
+        if sismo_web:
+            self.textEdit.setPlainText(sismo_web["texto_formateado"])
+            idx_mag = self.cmbx_tipo_mag.findText(sismo_web["tipo_mag"])
+            if idx_mag >= 0:
+                self.cmbx_tipo_mag.setCurrentIndex(idx_mag)
+            self.lbl_estado_redes.setStyleSheet("color: #0055A5; font-weight: bold;")
+            self.lbl_estado_redes.setText(
+                f"Encontrado automáticamente en {nombre_red} (Mag {sismo_web['magnitud']} {sismo_web['tipo_mag']}, "
+                f"Prof {sismo_web['profundidad']} km). Presione 'Insertar' para guardar."
+            )
+        else:
+            self.actualizar_resumen_redes()
+
+    def actualizar_resumen_redes(self):
+        if not self.parent or not getattr(self.parent, 'evento_reporte_escogido', None):
+            return
+        nombre_ev = str(self.parent.evento_reporte_escogido[0][1]).strip()
+        registros_ext = [
+            f"{f[17]} (Mag {f[15]} {f[16]}, Prof {f[9]} km, Lat {f[7]}, Long {f[8]})"
+            for f in (self.parent.catalogo or [])
+            if f and len(f) > 18 and f[0] != 'Id'
+            and str(f[18]).strip() == nombre_ev
+            and str(f[0]).strip()[-2:] != '00'
+        ]
+        if registros_ext:
+            self.lbl_estado_redes.setStyleSheet("color: #006400; font-weight: bold;")
+            self.lbl_estado_redes.setText("Registrado en catálogo: " + " | ".join(registros_ext))
+        else:
+            self.lbl_estado_redes.setStyleSheet("color: #555555;")
+            self.lbl_estado_redes.setText("Sin registros de otras redes asociados a este evento aún.")
 
     def closeEvent(self, event):
-        escritura_archivo(self.parent.directorios['archivo_reporte'],self.parent.eventos_reporte)
-        escritura_archivo(self.parent.directorios['archivo_catalogo'],self.parent.catalogo)
+        if self.cmbx_red.currentIndex() > 0 and self.textEdit.toPlainText().strip():
+            self.Insertar_()
+        escritura_archivo(self.parent.directorios['archivo_reporte'], self.parent.eventos_reporte)
+        escritura_archivo(self.parent.directorios['archivo_catalogo'], self.parent.catalogo)
 
     def Limpiar_(self):
         self.textEdit.clear()
         self.textEdit_2.clear()
         self.cmbx_red.setCurrentIndex(0)
         self.cmbx_tipo_mag.setCurrentIndex(0)
-        self.textEdit.clear()
-        self.textEdit_2.clear()
-        self.cmbx_red.setCurrentIndex(0)
-        self.cmbx_tipo_mag.setCurrentIndex(0)
 
     def Insertar_(self):
-        red_=self.cmbx_red.currentIndex()
-        magnitud_=self.cmbx_tipo_mag.currentIndex()
-        tipo_magnitud=self.cmbx_tipo_mag.currentText()
-        texto=self.textEdit.toPlainText()
-        texto2=self.textEdit_2.toPlainText()
-        self.parent.catalogo,self.parent.eventos_reporte=insertar_evento_otras_redes(
+        red_ = self.cmbx_red.currentIndex()
+        magnitud_ = self.cmbx_tipo_mag.currentIndex()
+        tipo_magnitud = self.cmbx_tipo_mag.currentText()
+        texto = self.textEdit.toPlainText()
+        texto2 = self.textEdit_2.toPlainText()
+        self.parent.catalogo, self.parent.eventos_reporte = insertar_evento_otras_redes(
             self.parent.catalogo,
             self.parent.indice_catalogo,
             self.parent.eventos_reporte,
@@ -1867,7 +2421,10 @@ class reporte_(QDialog):
             self.parent.evento_reporte_escogido,
             self.parent.indice,
             self.parent.indice_local
-            )
+        )
+        escritura_archivo(self.parent.directorios['archivo_reporte'], self.parent.eventos_reporte)
+        escritura_archivo(self.parent.directorios['archivo_catalogo'], self.parent.catalogo)
+        self.actualizar_resumen_redes()
         self.textEdit.clear()
         self.textEdit_2.clear()
         self.cmbx_red.setCurrentIndex(0)

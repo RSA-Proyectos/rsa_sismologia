@@ -20,17 +20,31 @@ if ruta_datos not in sys.path:
     sys.path.insert(0, ruta_datos)
 
 
-from rsa_io import lectura_resumen,lectura_archivo,escritura_archivo
+from rsa_io import lectura_resumen,lectura_archivo,escritura_archivo,Guardar_dia
 from rsa_dominio import correccion
-from rsa_utilidades import obtener_datos_reporte
-from rsa_pdf_catalogo import reporte_resumen_modos
+from rsa_utilidades import obtener_datos_reporte, generar_directorios_unidades_basicas, actualizar_periodos_emitidos_desde_fecha
+from rsa_pdf_catalogo import (
+    reporte_resumen_modos,
+    resolver_modo_por_zona,
+    obtener_perfil_mapa,
+    MODO_MAPA_ESPECIAL,
+    MODO_PERIODO_FRANJAS,
+    MODO_DIARIO_REVISION,
+    MODO_OFICIAL_DETALLADO,
+    MODO_OFICIAL_RESUMEN,
+    MODO_FACULTAD_RESUMEN,
+    MODO_INSTITUCIONAL_DETALLADO,
+    MODO_INSTITUCIONAL_RESUMEN,
+)
 from metodos_rsa import parametros_estaciones,cargar_dia,extraer_hasta_directorio
 from metodos_gestion import obtener_directorios
+from metodos_gis_rsa import widget_grafico_mpl, graficar_periodo_gis
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
 
 import csv
 from PyQt5 import uic, QtWidgets#Importamos módulo uic y Qtwidgets
 from datetime import datetime, time, timedelta
-from PyQt5.QtCore import QDate
+from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtWidgets import ( QMainWindow, QMessageBox,QFileDialog)
 import sys
 import xml.etree.ElementTree as ET
@@ -249,44 +263,290 @@ class Reporte_periodo(QMainWindow):
         self.dateEdit_ini_cat.setDate(QDate(2000, 1, 1))
         self.dateEdit_fin_cat.setDate(QDate(hoy.year(), hoy.month(), 1))
 
-        self.comboBox_semana.setCurrentIndex(int(semana)-1)
-        self.comboBox_anio.setCurrentIndex(int(self.hoy.year)-1995)
-        self.comboBox_mes.setCurrentIndex(int(self.hoy.month)-1)
-        self.cmbx_zona.currentIndexChanged.connect(self.Cargar_catalogo)
-        self.cmbx_mapa.currentIndexChanged.connect(self.Cargar_catalogo)
-        self.cmbx_magnitud.currentIndexChanged.connect(self.Cargar_catalogo)
-        self.cmbx_n_estaciones.currentIndexChanged.connect(self.Cargar_catalogo)
+        self.comboBox_semana.setCurrentIndex(max(0, int(semana) - 1))
+        self.comboBox_anio.setCurrentIndex(int(self.hoy.year) - 1995)
+        self.comboBox_mes.setCurrentIndex(int(self.hoy.month) - 1)
 
+        # Corrección preventiva de fechas cuando el día del mes es <= 7
+        d_fin_seguro = QDate.currentDate()
+        d_ini_seguro = d_fin_seguro.addDays(-7)
+        self.dateEdit_ini.setDate(d_ini_seguro)
+        self.dateEdit_fin.setDate(d_fin_seguro)
+
+        # Ampliar opciones de mínimo de estaciones para mecanismos focales
+        if self.cmbx_n_estaciones.findText("8") == -1:
+            self.cmbx_n_estaciones.addItems(["8", "10"])
+
+        # =====================================================================
+        # CONFIGURACIÓN DE GRUPOS DE RADIOBUTTONS EXCLUYENTES (ZONAS 1 y 2)
+        # =====================================================================
+        # 1A) Grupo excluyente para la unidad de período (Año, Mes, Semana o Rango de Fechas)
+        self.grupo_rb_periodo = QtWidgets.QButtonGroup(self)
+        if hasattr(self, 'rb_anio'):
+            self.grupo_rb_periodo.addButton(self.rb_anio, 0)
+            self.grupo_rb_periodo.addButton(self.rb_mes, 1)
+            self.grupo_rb_periodo.addButton(self.rb_semana, 2)
+            self.grupo_rb_periodo.addButton(self.rb_periodo, 3)
+            self.grupo_rb_periodo.buttonClicked.connect(self._actualizar_controles_periodo)
+
+        # 1B) Grupo excluyente para la fuente de consolidación (_cat.csv existente por defecto vs Día por día)
+        self.grupo_rb_fuente = QtWidgets.QButtonGroup(self)
+        if hasattr(self, 'rb_fuente_diaria'):
+            self.grupo_rb_fuente.addButton(self.rb_fuente_catalogo, 1)
+            self.grupo_rb_fuente.addButton(self.rb_fuente_diaria, 0)
+            self.rb_fuente_catalogo.setChecked(True)
+
+        # 1C) Botón unificado de carga de período
+        if hasattr(self, 'btn_cargar_periodo'):
+            self.btn_cargar_periodo.clicked.connect(self.cargar_periodo_unificado)
+
+        # 2A) Grupo excluyente de modo de filtro de profundidad (Estratos vs Rango numérico km)
+        self.grupo_rb_prof = QtWidgets.QButtonGroup(self)
+        if hasattr(self, 'rb_prof_estratos'):
+            self.grupo_rb_prof.addButton(self.rb_prof_estratos, 0)
+            self.grupo_rb_prof.addButton(self.rb_prof_rango, 1)
+            self.grupo_rb_prof.buttonClicked.connect(self._al_cambiar_controles_filtro)
+
+        # 2B) Grupo excluyente de modo de filtro de magnitud (Umbral/Todas vs Rango numérico Md)
+        self.grupo_rb_mag = QtWidgets.QButtonGroup(self)
+        if hasattr(self, 'rb_mag_todos'):
+            self.grupo_rb_mag.addButton(self.rb_mag_todos, 0)
+            self.grupo_rb_mag.addButton(self.rb_mag_rango, 1)
+            self.grupo_rb_mag.buttonClicked.connect(self._al_cambiar_controles_filtro)
+
+        # 4A) Grupo excluyente de las 3 posibilidades de simbología de círculos en Zona 4
+        #     (Círculos rellenos = 1, Círculos sin relleno = 0, Círculos concéntricos = 2)
+        self.grupo_rb_simbologia = QtWidgets.QButtonGroup(self)
+        if hasattr(self, 'rb_circulos_rellenos'):
+            self.grupo_rb_simbologia.addButton(self.rb_circulos_rellenos, 1)
+            self.grupo_rb_simbologia.addButton(self.rb_circulos_sin_relleno, 0)
+            self.grupo_rb_simbologia.addButton(self.rb_circulos_concentricos, 2)
+            self.grupo_rb_simbologia.buttonClicked.connect(self._al_cambiar_controles_filtro)
+
+        # Conexiones de reactivación de catálogo respaldado ante cambios de región o filtros
+        self._zona_previa = self.cmbx_zona.currentText().strip()
+        self.cmbx_zona.currentIndexChanged.connect(self._al_cambiar_zona_mapa)
+        self.cmbx_mapa.currentIndexChanged.connect(self._al_cambiar_controles_filtro)
+        self.cmbx_magnitud.currentIndexChanged.connect(self._al_cambiar_controles_filtro)
+        self.cmbx_profundidad.currentIndexChanged.connect(self._al_cambiar_controles_filtro)
+        self.cmbx_n_estaciones.currentIndexChanged.connect(self._al_cambiar_controles_filtro)
+        if hasattr(self, 'cmbx_filtro_red') and self.cmbx_filtro_red is not None:
+            self.cmbx_filtro_red.currentIndexChanged.connect(self._al_cambiar_controles_filtro)
+
+        for nombre_ctrl in (
+            'ck_box_filtro', 'ck_prof_sup', 'ck_prof_med', 'ck_prof_pro',
+            'ck_nest_catalogo', 'ck_box_reporte', 'ck_box_firma',
+            'ck_box_relleno', 'ck_box_concentricos'
+        ):
+            ctrl = getattr(self, nombre_ctrl, None)
+            if ctrl is not None:
+                ctrl.stateChanged.connect(self._al_cambiar_controles_filtro)
+
+        for nombre_spin in ('spin_prof_min', 'spin_prof_max', 'spin_mag_min', 'spin_mag_max'):
+            sp = getattr(self, nombre_spin, None)
+            if sp is not None:
+                sp.valueChanged.connect(self._al_cambiar_controles_filtro)
+
+        # =====================================================================
+        # CONFIGURACIÓN DE VISTA PREVIA CARTOGRÁFICA GIS (ZONA 5)
+        # =====================================================================
+        if hasattr(self, 'contenedor_mapa_gis') and self.contenedor_mapa_gis is not None:
+            self.layout_mapa_gis = QtWidgets.QVBoxLayout(self.contenedor_mapa_gis)
+            self.layout_mapa_gis.setContentsMargins(0, 0, 0, 0)
+            self.widget_mapa_gis = widget_grafico_mpl(self.contenedor_mapa_gis)
+            self.layout_mapa_gis.addWidget(self.widget_mapa_gis)
+        else:
+            self.widget_mapa_gis = None
+
+        self._ventana_emergente_gis = None
+        self._widget_mapa_gis_emergente = None
+
+        if hasattr(self, 'btn_actualizar_gis') and self.btn_actualizar_gis is not None:
+            self.btn_actualizar_gis.clicked.connect(self.actualizar_vista_gis)
+        if hasattr(self, 'btn_ampliar_gis') and self.btn_ampliar_gis is not None:
+            self.btn_ampliar_gis.clicked.connect(self.abrir_ventana_emergente_gis)
+        if hasattr(self, 'btn_exportar_gis') and self.btn_exportar_gis is not None:
+            self.btn_exportar_gis.clicked.connect(self.exportar_imagen_gis)
+        if hasattr(self, 'ck_gis_estaciones') and self.ck_gis_estaciones is not None:
+            self.ck_gis_estaciones.stateChanged.connect(self.actualizar_vista_gis)
+
+        self._actualizar_controles_periodo()
+        self._actualizar_estado_visual_filtros()
+        self.actualizar_vista_gis()
+        self._registrar_bitacora(
+            "Sistema listo. Seleccione un período en la Zona 1 (Año, Mes, Semana o Rango de Fechas),\n"
+            "elija la fuente (Día por día o Reportes existentes _cat.csv) y pulse 'Cargar Período Seleccionado'."
+        )
+
+    def _obtener_estilo_circulos_mapa(self):
+        """
+        Evalúa las tres posibilidades excluyentes de simbología en el mapa:
+          - True  : Círculos rellenos
+          - False : Círculos sin relleno
+          - 2     : Círculos concéntricos (solo el mapa principal, sin detalle adicional)
+        """
+        if hasattr(self, 'rb_circulos_concentricos') and self.rb_circulos_concentricos.isChecked():
+            return 2
+        if hasattr(self, 'rb_circulos_sin_relleno') and self.rb_circulos_sin_relleno.isChecked():
+            return False
+        if hasattr(self, 'rb_circulos_rellenos') and self.rb_circulos_rellenos.isChecked():
+            return True
+        if hasattr(self, 'ck_box_concentricos') and self.ck_box_concentricos.isChecked():
+            return 2
+        return bool(self.ck_box_relleno.isChecked()) if hasattr(self, 'ck_box_relleno') else True
 
     def resolver_modo_desde_controles(self) -> int:
         """
-        Devuelve el MODO_* (M1..M7) en función de:
+        Devuelve el MODO_* (M0..M7) delegando en el catálogo centralizado de modos (`rsa_pdf_catalogo.py`)
+        en función de:
+            - rb_circulos_concentricos: si está seleccionado, devuelve MODO_MAPA_ESPECIAL (0)
+              porque solo requiere el mapa principal sin ningún detalle adicional.
             - cmbx_zona: 'Region', 'Ecuador', 'Facultad', 'Fuentes', 'Reportes', 'Chanlud', ...
             - ck_box_reporte: marcado = 'detallado', desmarcado = 'resumen' (cuando aplica)
         Nota: M1 y M2 no se generan aquí (período por franjas y diario de revisión).
         """
+        if self._obtener_estilo_circulos_mapa() == 2:
+            return MODO_MAPA_ESPECIAL
         zona = (self.cmbx_zona.currentText() if self.cmbx_zona else "").strip()
-        zona_l = zona.lower()
         reporte_marcado = bool(self.ck_box_reporte.isChecked()) if self.ck_box_reporte else False
+        return resolver_modo_por_zona(zona, con_detalle=reporte_marcado)
 
-        # No generables en este módulo
-        if zona_l in {"region", "región", "fuentes", "reportes"}:
-            return 0  # 0 = no generable aquí
+    # =========================================================================
+    # VISTA PREVIA CARTOGRÁFICA INTERACTIVA GIS (ZONA 5)
+    # =========================================================================
+    def actualizar_vista_gis(self):
+        """
+        Actualiza el mapa cartográfico interactivo GIS en la columna derecha (Zona 5)
+        con el catálogo sísmico filtrado según los controles activos (Región, Profundidad,
+        Magnitud, N° de Estaciones y Simbología).
+        """
+        if not hasattr(self, 'widget_mapa_gis') or self.widget_mapa_gis is None:
+            return
 
-        # Ecuador → Oficial (detallado/resumen)
-        if zona_l == "ecuador":
-            return MODO_OFICIAL_DETALLADO if reporte_marcado else MODO_OFICIAL_RESUMEN
+        idx_zona = self.cmbx_zona.currentIndex() if hasattr(self, 'cmbx_zona') else 1
+        coord_zona = self.coordenadas[idx_zona] if hasattr(self, 'coordenadas') and 0 <= idx_zona < len(self.coordenadas) else None
+        zona_txt = self.cmbx_zona.currentText().strip() if hasattr(self, 'cmbx_zona') else 'Ecuador'
+        estilo_circulos = self._obtener_estilo_circulos_mapa()
+        mostrar_est = bool(self.ck_gis_estaciones.isChecked()) if hasattr(self, 'ck_gis_estaciones') else True
+        periodo_txt = getattr(self, 'periodo_reporte', '').strip()
+        titulo = f"VISTA PREVIA GIS — {zona_txt.upper()}" + (f" ({periodo_txt})" if periodo_txt else "")
 
-        # Facultad → siempre resumen institucional/redes
-        if zona_l == "facultad":
-            return MODO_FACULTAD_RESUMEN
+        # Si hay catálogo en memoria, restaurar catálogo base y aplicar filtros activos
+        if hasattr(self, 'catalogo_respaldo') and len(getattr(self, 'catalogo_respaldo', [])) > 1:
+            self.Cargar_catalogo()
+            self.filtros()
+            catalogo_a_graficar = self.catalogo
+        elif hasattr(self, 'catalogo') and len(self.catalogo) > 1:
+            catalogo_a_graficar = self.catalogo
+        else:
+            catalogo_a_graficar = []
 
-        # A partir de 'Chanlud' → Institucional (detallado/resumen)
-        # (Si no es Ecuador/Facultad/Región/Fuentes/Reportes, lo tratamos como institucional)
-        return MODO_INSTITUCIONAL_DETALLADO if reporte_marcado else MODO_INSTITUCIONAL_RESUMEN
+        stats = graficar_periodo_gis(
+            widget=self.widget_mapa_gis,
+            catalogo=catalogo_a_graficar,
+            coordenadas_mapa=coord_zona,
+            estilo_circulos=estilo_circulos,
+            titulo_mapa=titulo,
+            parametros_est=self.parametros,
+            mostrar_estaciones=mostrar_est,
+        )
 
+        # Si la ventana emergente de ampliación GIS está abierta, sincronizarla en vivo
+        if (
+            getattr(self, '_ventana_emergente_gis', None) is not None
+            and self._ventana_emergente_gis.isVisible()
+            and getattr(self, '_widget_mapa_gis_emergente', None) is not None
+        ):
+            self._ventana_emergente_gis.setWindowTitle(f"Visor Cartográfico GIS Ampliado — {zona_txt} ({periodo_txt})")
+            graficar_periodo_gis(
+                widget=self._widget_mapa_gis_emergente,
+                catalogo=catalogo_a_graficar,
+                coordenadas_mapa=coord_zona,
+                estilo_circulos=estilo_circulos,
+                titulo_mapa=titulo,
+                parametros_est=self.parametros,
+                mostrar_estaciones=mostrar_est,
+            )
 
+        if hasattr(self, 'lbl_resumen_gis') and self.lbl_resumen_gis is not None:
+            if stats['total'] > 0:
+                txt_res = (
+                    f"GIS ({zona_txt}): {stats['total']} sismos (RSA: {stats['rsa']} | Otras: {stats['otras']}) "
+                    f"[Sup: {stats['sup']} | Med: {stats['med']} | Prof: {stats['pro']}]"
+                )
+            else:
+                txt_res = f"GIS ({zona_txt}): 0 sismos en la región o filtros seleccionados."
+            self.lbl_resumen_gis.setText(txt_res)
 
+    def abrir_ventana_emergente_gis(self):
+        """
+        Abre el gráfico cartográfico GIS en una pantalla emergente independiente,
+        redimensionable y maximizable, provista de barra de herramientas interactiva
+        (Zoom, Pan, Vista Original y Guardado) para inspeccionar el mapa en detalle.
+        """
+        zona_txt = self.cmbx_zona.currentText().strip() if hasattr(self, 'cmbx_zona') else 'Ecuador'
+        periodo_txt = getattr(self, 'periodo_reporte', '').strip()
+        titulo_vent = f"Visor Cartográfico GIS Ampliado — {zona_txt}" + (f" ({periodo_txt})" if periodo_txt else "")
+
+        if getattr(self, '_ventana_emergente_gis', None) is None:
+            dlg = QtWidgets.QDialog(self)
+            dlg.setWindowFlags(
+                dlg.windowFlags()
+                | Qt.WindowMinMaxButtonsHint
+                | Qt.WindowMaximizeButtonHint
+                | Qt.WindowCloseButtonHint
+            )
+            dlg.resize(1040, 820)
+            layout_dlg = QtWidgets.QVBoxLayout(dlg)
+            layout_dlg.setContentsMargins(6, 6, 6, 6)
+            layout_dlg.setSpacing(4)
+
+            visor_emergente = widget_grafico_mpl(dlg)
+            barra_nav = NavigationToolbar2QT(visor_emergente.canvas, dlg)
+            layout_dlg.addWidget(barra_nav)
+            layout_dlg.addWidget(visor_emergente, stretch=1)
+
+            self._ventana_emergente_gis = dlg
+            self._widget_mapa_gis_emergente = visor_emergente
+
+        self._ventana_emergente_gis.setWindowTitle(titulo_vent)
+        self._ventana_emergente_gis.show()
+        self._ventana_emergente_gis.raise_()
+        self._ventana_emergente_gis.activateWindow()
+        self.actualizar_vista_gis()
+
+    def exportar_imagen_gis(self):
+        """
+        Exporta la vista cartográfica GIS activa a un archivo PNG de alta resolución (300 DPI)
+        en el directorio de reportes de la región seleccionada.
+        """
+        if not hasattr(self, 'widget_mapa_gis') or self.widget_mapa_gis is None:
+            return
+
+        try:
+            base_rep = str(getattr(self, 'directorio_reporte', '')).rstrip('/\\')
+            zona_rep = self.cmbx_zona.currentText().strip() if hasattr(self, 'cmbx_zona') else 'Ecuador'
+            if not base_rep:
+                base_rep = os.path.join(self.directorio_trabajo, 'reportes')
+            directorio_salida = os.path.join(base_rep, zona_rep)
+            os.makedirs(directorio_salida, exist_ok=True)
+
+            per_str = getattr(self, 'periodo_reporte', '')
+            if per_str.startswith('Período: '):
+                nombre_base = per_str[9:].replace('/', '_').strip()
+            elif per_str:
+                nombre_base = per_str[:10].strip()
+            else:
+                nombre_base = f"mapa_gis_{zona_rep}"
+
+            ruta_png = os.path.join(directorio_salida, f"{nombre_base}_gis.png")
+            self.widget_mapa_gis.figure.savefig(ruta_png, dpi=300, facecolor='#ffffff', bbox_inches='tight')
+
+            msg_ok = f"✓ Mapa GIS exportado exitosamente:\n  • Archivo: {ruta_png}\n  • Resolución: 300 DPI"
+            self._registrar_bitacora(msg_ok)
+            QMessageBox.information(self, "Exportación Cartográfica Exitosa", msg_ok)
+        except Exception as e:
+            QMessageBox.critical(self, "Error al Exportar Mapa GIS", f"No se pudo guardar la imagen del mapa:\n{e}")
 
     def inicializar_variables(self):
         self.eventos=[]
@@ -302,22 +562,22 @@ class Reporte_periodo(QMainWindow):
         self.arbol = ET.parse(archivo)
         self.raiz = self.arbol.getroot()
 
-      
     def Guardar_(self):
+        if hasattr(self, 'catalogo_respaldo') and len(getattr(self, 'catalogo_respaldo', [])) > 1:
+            self.Cargar_catalogo()
         self.filtros()
         if self.periodo_reporte[0:9]=='Período: ':
             #Por periodo
-            nombre_=self.periodo_reporte[9:]
-            nombre_ = nombre_.replace('/', '_')
-            nombre_="/"+nombre_
+            nombre_=self.periodo_reporte[9:].replace('/', '_').strip()
         else:
             #semanal
-            nombre_="/"+self.periodo_reporte[:10]
-        directorio_=self.directorio_reporte+"/"+self.cmbx_zona.currentText()+"/"
+            nombre_=self.periodo_reporte[:10].strip()
+        base_rep = str(self.directorio_reporte).rstrip("/\\")
+        zona_rep = self.cmbx_zona.currentText().strip()
+        directorio_ = f"{base_rep}/{zona_rep}/"
         try:
-            path = Path(directorio_)
-            path.mkdir(parents=True)
-        except FileExistsError:
+            Path(directorio_).mkdir(parents=True, exist_ok=True)
+        except OSError:
             pass    
 
         self.archivo_dat_men=directorio_+nombre_+"_rep.csv"
@@ -381,7 +641,11 @@ class Reporte_periodo(QMainWindow):
                 cont_ruido=cont_ruido+1
             if(self.eventos_reporte[i][2]=="INDEFINIDO"):
                 cont_ind=cont_ind+1
-        if self.cmbx_zona.currentIndex()<4:# self.cmbx_zona.currentIndex()==0
+        # Consulta centralizada al perfil del mapa seleccionado (rsa_pdf_catalogo.py):
+        # Si el mapa usa 'matriz_global' (0:Region, 1:Ecuador, 2:Facultad, 3:Fuentes),
+        # se inserta la fila de totales globales por tipo de evento en self.resumen[1].
+        perfil_mapa = obtener_perfil_mapa(self.cmbx_zona.currentIndex(), es_periodo=True)
+        if perfil_mapa['tipo_resumen_estadistico'] == 'matriz_global':
             self.resumen.insert(1,["Total:",cont_sismos,cont_FF,cont_FC,cont_tel,cont_ev,cont_ind,cont_ruido])
 
 ##############################################################################################        
@@ -421,9 +685,26 @@ class Reporte_periodo(QMainWindow):
         if self.ck_box_firma.checkState()==2:
             bandera_firma=True
         else:
-            bandera_firma=False        
-        bandera_relleno=self.ck_box_relleno.isChecked()
+            bandera_firma=False
+        bandera_relleno = self._obtener_estilo_circulos_mapa()
         modo_actual = self.resolver_modo_desde_controles()
+
+        # Validación preventiva de existencia del archivo cartográfico <Zona>_<detalle>.emf
+        zona_nombre = self.cmbx_zona.currentText().strip()
+        indice_tipo_mapa = self.cmbx_mapa.currentIndex()
+        ruta_emf_esperada = os.path.join(ruta_datos, 'mapas', f"{zona_nombre}_{indice_tipo_mapa}.emf")
+        if not os.path.isfile(ruta_emf_esperada):
+            # Buscar fallback seguro (_0.emf o _1.emf) para evitar FileNotFoundError en ReportLab
+            for idx_alt in (0, 1, 2):
+                ruta_alt = os.path.join(ruta_datos, 'mapas', f"{zona_nombre}_{idx_alt}.emf")
+                if os.path.isfile(ruta_alt):
+                    self._registrar_bitacora(
+                        f"Aviso cartográfico: No existe '{zona_nombre}_{indice_tipo_mapa}.emf' en datos/mapas/. "
+                        f"Se utilizará automáticamente '{zona_nombre}_{idx_alt}.emf'."
+                    )
+                    indice_tipo_mapa = idx_alt
+                    break
+
         acelerogramas=reporte_resumen_modos(self.archivo_1_pdf,
                                       self.periodo_reporte,
                                       self.fecha_ini,
@@ -431,7 +712,7 @@ class Reporte_periodo(QMainWindow):
                                       self.catalogo,
                                       self.resumen,
                                       self.cmbx_zona.currentIndex(),
-                                      self.cmbx_mapa.currentIndex(),     
+                                      indice_tipo_mapa,     
                                       modo_actual,
                                       0      ,  
                                       self.directorio_trabajo,
@@ -475,7 +756,7 @@ class Reporte_periodo(QMainWindow):
         escritura_archivo(self.archivo_eventos_acelerografos,catalogo_acelerometros)
             
 
-        if self.cmbx_zona.currentIndex()<4:#self.cmbx_zona.currentIndex()==0
+        if perfil_mapa['tipo_resumen_estadistico'] == 'matriz_global':
     
 #################################################################################
 #               Escritura del archivo resumen                    
@@ -549,55 +830,332 @@ class Reporte_periodo(QMainWindow):
 
         # Guardar el archivo resultante
         self.nuevo_arbol.write(self.archivo_xml_escritura)
+        self._registrar_bitacora(
+            f"✓ Informe guardado exitosamente en:\n  {directorio_}\n"
+            f"  • PDF: {os.path.basename(self.archivo_1_pdf)}\n"
+            f"  • Catálogo filtrado: {max(0, len(self.catalogo) - 1)} sismos | XML: {os.path.basename(self.archivo_xml_escritura)}"
+        )
         QMessageBox.information(self,self.tr("Aviso"),self.tr("¡Archivo Guardado"))  
         self.inicializar_variables()
         self.Btn_guardar.setEnabled(False)
 
-           
+    # =========================================================================
+    # MÉTODOS DE COORDINACIÓN VISUAL DE ZONAS, RADIOBUTTONS Y BITÁCORA
+    # =========================================================================
+    def _registrar_bitacora(self, mensaje: str):
+        """Muestra el estado actual del catálogo, filtros y archivos generados en el cuadro textEdit."""
+        if hasattr(self, 'textEdit') and self.textEdit is not None:
+            self.textEdit.setPlainText(mensaje)
+
+    def _actualizar_controles_periodo(self, *_args):
+        """
+        Habilita únicamente el selector de fecha/unidad correspondiente al RadioButton
+        activo en la Zona 1 (Año, Mes, Semana o Rango de Fechas) para evitar ambigüedad.
+        """
+        es_anio = getattr(self, 'rb_anio', None) is not None and self.rb_anio.isChecked()
+        es_mes = getattr(self, 'rb_mes', None) is not None and self.rb_mes.isChecked()
+        es_semana = getattr(self, 'rb_semana', None) is not None and self.rb_semana.isChecked()
+        es_periodo = getattr(self, 'rb_periodo', None) is not None and self.rb_periodo.isChecked()
+
+        if hasattr(self, 'comboBox_anio'):
+            self.comboBox_anio.setEnabled(es_anio or es_mes or es_semana)
+        if hasattr(self, 'comboBox_mes'):
+            self.comboBox_mes.setEnabled(es_mes)
+        if hasattr(self, 'comboBox_semana'):
+            self.comboBox_semana.setEnabled(es_semana)
+        if hasattr(self, 'dateEdit_ini'):
+            self.dateEdit_ini.setEnabled(es_periodo)
+        if hasattr(self, 'dateEdit_fin'):
+            self.dateEdit_fin.setEnabled(es_periodo)
+
+    def _actualizar_estado_visual_filtros(self):
+        """
+        Sincroniza la habilitación visual de los sub-grupos de filtros (Profundidad,
+        Magnitud y N° de Estaciones) según la casilla maestra `ck_box_filtro` y los
+        RadioButtons internos, y actualiza el resumen de impresión en la Zona 4.
+        """
+        filtro_activo = bool(self.ck_box_filtro.isChecked()) if hasattr(self, 'ck_box_filtro') else True
+
+        for nombre_grp in ('grupo_filtro_prof', 'grupo_filtro_mag', 'grupo_filtro_nest'):
+            grp = getattr(self, nombre_grp, None)
+            if grp is not None:
+                grp.setEnabled(filtro_activo)
+
+        if filtro_activo:
+            por_estratos = getattr(self, 'rb_prof_estratos', None) is not None and self.rb_prof_estratos.isChecked()
+            for nom_ck in ('ck_prof_sup', 'ck_prof_med', 'ck_prof_pro'):
+                ck = getattr(self, nom_ck, None)
+                if ck is not None:
+                    ck.setEnabled(por_estratos)
+            for nom_sp in ('spin_prof_min', 'spin_prof_max'):
+                sp = getattr(self, nom_sp, None)
+                if sp is not None:
+                    sp.setEnabled(not por_estratos)
+
+            por_mag_rango = getattr(self, 'rb_mag_rango', None) is not None and self.rb_mag_rango.isChecked()
+            if hasattr(self, 'cmbx_magnitud'):
+                self.cmbx_magnitud.setEnabled(not por_mag_rango)
+            for nom_sp_m in ('spin_mag_min', 'spin_mag_max'):
+                spm = getattr(self, nom_sp_m, None)
+                if spm is not None:
+                    spm.setEnabled(por_mag_rango)
+
+        # Evaluar las 3 posibilidades excluyentes: Círculos rellenos, Círculos sin relleno y Círculos concéntricos
+        estilo_circulos = self._obtener_estilo_circulos_mapa()
+        usar_concentricos = (estilo_circulos == 2)
+
+        # Al escoger Círculos concéntricos es solo el mapa principal (no requiere detalle ni firma)
+        if hasattr(self, 'ck_box_reporte') and self.ck_box_reporte is not None:
+            self.ck_box_reporte.setEnabled(not usar_concentricos)
+        if hasattr(self, 'ck_box_firma') and self.ck_box_firma is not None:
+            self.ck_box_firma.setEnabled(not usar_concentricos)
+
+        # Sincronizar controles ocultos de retrocompatibilidad
+        if hasattr(self, 'ck_box_concentricos') and self.ck_box_concentricos is not None:
+            self.ck_box_concentricos.blockSignals(True)
+            self.ck_box_concentricos.setChecked(usar_concentricos)
+            self.ck_box_concentricos.blockSignals(False)
+        if hasattr(self, 'ck_box_relleno') and self.ck_box_relleno is not None:
+            self.ck_box_relleno.blockSignals(True)
+            self.ck_box_relleno.setChecked(estilo_circulos is True)
+            self.ck_box_relleno.blockSignals(False)
+
+        # Actualizar etiqueta de diagnóstico de impresión PDF en Zona 4
+        if hasattr(self, 'lbl_resumen_impresion') and self.lbl_resumen_impresion is not None:
+            modo_num = self.resolver_modo_desde_controles()
+            zona_txt = self.cmbx_zona.currentText().strip() if hasattr(self, 'cmbx_zona') else 'Ecuador'
+            if usar_concentricos:
+                relleno_txt = "Círculos concéntricos (Solo mapa principal)"
+            elif estilo_circulos:
+                relleno_txt = "Círculos rellenos"
+            else:
+                relleno_txt = "Círculos sin relleno"
+            nombres_modo = {
+                0: "M0 — Solo Mapa Principal",
+                3: "M3 — Boletín Oficial Detallado RSA",
+                4: "M4 — Boletín Oficial Resumen RSA",
+                5: "M5 — Boletín Institucional Facultad",
+                6: f"M6 — Informe Institucional Detallado ({zona_txt})",
+                7: f"M7 — Informe Institucional Resumen ({zona_txt})",
+            }
+            desc_modo = nombres_modo.get(modo_num, f"M{modo_num}")
+            modo_red_idx = self.cmbx_filtro_red.currentIndex() if hasattr(self, 'cmbx_filtro_red') else 0
+            nombres_red = {0: "Solo RSA", 1: "Todas las redes", 2: "Solo Otras redes"}
+            txt_red = nombres_red.get(modo_red_idx, "Solo RSA")
+            self.lbl_resumen_impresion.setText(f"Modo PDF: {desc_modo}  |  {relleno_txt}  |  Red: {txt_red}")
+
+    def _al_cambiar_zona_mapa(self, *_args):
+        """
+        Cuando el usuario cambia la REGION (`cmbx_zona`), si selecciona 'Fuentes'
+        activa automáticamente la opción `rb_circulos_concentricos` (solo mapa principal),
+        y al salir de 'Fuentes' vuelve a `rb_circulos_rellenos`, permitiendo elegir
+        cualquiera de las 3 posibilidades en cualquier región.
+        """
+        zona_nueva = self.cmbx_zona.currentText().strip() if hasattr(self, 'cmbx_zona') else ''
+        zona_ant = getattr(self, '_zona_previa', '')
+        self._zona_previa = zona_nueva
+        if hasattr(self, 'rb_circulos_concentricos') and hasattr(self, 'rb_circulos_rellenos'):
+            self.rb_circulos_concentricos.blockSignals(True)
+            self.rb_circulos_rellenos.blockSignals(True)
+            if zona_nueva.lower() == 'fuentes':
+                self.rb_circulos_concentricos.setChecked(True)
+            elif zona_ant.lower() == 'fuentes':
+                self.rb_circulos_rellenos.setChecked(True)
+            self.rb_circulos_concentricos.blockSignals(False)
+            self.rb_circulos_rellenos.blockSignals(False)
+        self._al_cambiar_controles_filtro()
+
+    def _al_cambiar_controles_filtro(self, *_args):
+        """
+        Se dispara cuando el usuario modifica la Región, Capa de Mapa, Profundidad,
+        Magnitud, N° de Estaciones, Red u opciones de impresión. Restaura el catálogo
+        respaldado en memoria para permitir guardar múltiples reportes consecutivos
+        y actualiza en tiempo real la vista cartográfica GIS.
+        """
+        self._actualizar_estado_visual_filtros()
+        if hasattr(self, 'catalogo_respaldo') and len(getattr(self, 'catalogo_respaldo', [])) > 1:
+            self.Cargar_catalogo()
+            total_base = max(0, len(self.catalogo_respaldo) - 1)
+            zona_txt = self.cmbx_zona.currentText().strip()
+            dest_txt = self._ruta_destino_actual()
+            modo_red_idx = self.cmbx_filtro_red.currentIndex() if hasattr(self, 'cmbx_filtro_red') else 0
+            nombres_red = {0: "Solo RSA", 1: "Todas las redes", 2: "Solo Otras redes"}
+            txt_red = nombres_red.get(modo_red_idx, "Solo RSA")
+            self._registrar_bitacora(
+                f"Período activo: {getattr(self, 'periodo_reporte', '')}\n"
+                f"Sismos totales en respaldo: {total_base}  |  Región: {zona_txt}  |  Filtro Red: {txt_red}\n"
+                f"Carpeta destino de guardado: {dest_txt}"
+            )
+        self.actualizar_vista_gis()
+
+    def _ruta_destino_actual(self) -> str:
+        """Devuelve la ruta de carpeta donde se guardará el reporte según el período y región activos."""
+        base_rep = str(getattr(self, 'directorio_reporte', '')).rstrip('/\\')
+        zona_txt = self.cmbx_zona.currentText().strip() if hasattr(self, 'cmbx_zona') else 'Ecuador'
+        return f"{base_rep}/{zona_txt}/" if base_rep else ""
+
+    def _obtener_tipo_periodo_activo(self):
+        """
+        Retorna el código de unidad de período seleccionado en la Zona 1:
+        0 = Año, 1 = Mes, 2 = Semana ISO.
+        Cuando está activo 'rb_periodo' (Rango de Fechas), retorna None para que
+        `obtener_datos_reporte()` reconozca automáticamente si el rango seleccionado
+        corresponde a un Año completo (0), Mes completo (1), Semana ISO completa (2)
+        o Rango de Fechas arbitrario (3).
+        """
+        if hasattr(self, 'rb_anio') and self.rb_anio.isChecked():
+            return 0
+        if hasattr(self, 'rb_mes') and self.rb_mes.isChecked():
+            return 1
+        if hasattr(self, 'rb_semana') and self.rb_semana.isChecked():
+            return 2
+        return None
+
+    def _obtener_rango_fechas_seleccionado(self):
+        """
+        Determina (fecha_ini, fecha_fin) según el RadioButton seleccionado en la Zona 1:
+        Año entero, Mes del año, Semana ISO o Rango de Fechas (Inicio - Fin).
+        """
+        if hasattr(self, 'rb_anio') and self.rb_anio.isChecked():
+            anio = int(self.comboBox_anio.currentText())
+            return datetime(anio, 1, 1), datetime(anio, 12, 31)
+        if hasattr(self, 'rb_mes') and self.rb_mes.isChecked():
+            anio = int(self.comboBox_anio.currentText())
+            mes = self.comboBox_mes.currentIndex() + 1
+            return datetime(anio, mes, 1), datetime(anio, mes, calendar.monthrange(anio, mes)[1])
+        if hasattr(self, 'rb_semana') and self.rb_semana.isChecked():
+            anio = int(self.comboBox_anio.currentText())
+            semana = int(self.comboBox_semana.currentText())
+            f_ini = datetime.strptime(f'{anio}-W{semana}-1', '%G-W%V-%u')
+            return f_ini, f_ini + timedelta(days=6)
+
+        # Por defecto o cuando rb_periodo está seleccionado: Rango de fechas dateEdit_ini .. dateEdit_fin
+        f_ini = datetime.combine(self.dateEdit_ini.date().toPyDate(), time(0, 0, 0))
+        f_fin = datetime.combine(self.dateEdit_fin.date().toPyDate(), time(0, 0, 0))
+        return f_ini, f_fin
+
+    def cargar_periodo_unificado(self):
+        """
+        Punto de entrada único del botón 'Cargar Período Seleccionado' en la Zona 1:
+          - Determina el período según el RadioButton activo (Año, Mes, Semana o Rango de Fechas).
+          - Ejecuta la consolidación según la fuente elegida:
+              * 'rb_fuente_diaria': Lee día por día las carpetas diarias (recopilacion).
+              * 'rb_fuente_catalogo': Usa los reportes existentes (_cat.csv anuales/diarios).
+        """
+        usar_catalogo_existente = (
+            hasattr(self, 'rb_fuente_catalogo') and self.rb_fuente_catalogo.isChecked()
+        )
+        f_ini, f_fin = self._obtener_rango_fechas_seleccionado()
+        if f_ini > f_fin:
+            QMessageBox.warning(
+                self,
+                "Rango de fechas inválido",
+                "La fecha de INICIO no puede ser posterior a la fecha de FIN."
+            )
+            return
+
+        # Sincronizar los dateEdit visuales con el rango efectivamente calculado
+        self.dateEdit_ini.setDate(QDate(f_ini.year, f_ini.month, f_ini.day))
+        self.dateEdit_fin.setDate(QDate(f_fin.year, f_fin.month, f_fin.day))
+
+        if usar_catalogo_existente:
+            self.ck_box_historico.setChecked(True)
+            self.dateEdit_ini_cat.setDate(QDate(f_ini.year, f_ini.month, f_ini.day))
+            self.dateEdit_fin_cat.setDate(QDate(f_fin.year, f_fin.month, f_fin.day))
+            self.acumular_solo_catalogo(fecha_ini_explicita=f_ini, fecha_fin_explicita=f_fin)
+        else:
+            if hasattr(self, 'rb_anio') and self.rb_anio.isChecked():
+                self.anio_()
+            elif hasattr(self, 'rb_mes') and self.rb_mes.isChecked():
+                self.mes_()
+            elif hasattr(self, 'rb_semana') and self.rb_semana.isChecked():
+                self.semana_()
+            else:
+                self.periodo()
+
     def anio_(self):
+        self.inicializar_variables()
         anio=int(self.comboBox_anio.currentText())
         self.fecha_ini=datetime(anio,1,1)
         self.fecha_fin=datetime(anio,12,31)
-        self.periodo_reporte, self.directorio_reporte,self.archivo_reporte=obtener_datos_reporte(self.fecha_ini,self.fecha_fin,self.directorio_trabajo,self.cmbx_zona.currentText())
+        self.periodo_reporte, self.directorio_reporte,self.archivo_reporte=obtener_datos_reporte(
+            self.fecha_ini, self.fecha_fin, self.directorio_trabajo, self.cmbx_zona.currentText(), tipo_forzado=0
+        )
         self.recopilacion(self.fecha_ini,self.fecha_fin)
         self.Btn_guardar.setEnabled(True)
+        dest_txt = self._ruta_destino_actual()
+        self._registrar_bitacora(
+            f"✓ Año {anio} cargado día por día ({self.periodo_reporte}).\n"
+            f"  • Sismos en catálogo: {max(0, len(self.catalogo) - 1)}  |  Eventos totales: {len(self.eventos)}\n"
+            f"  • Destino de guardado: {dest_txt}"
+        )
 
     def mes_(self):
+        self.inicializar_variables()
         anio=int(self.comboBox_anio.currentText())
         mes=self.comboBox_mes.currentIndex()+1
         self.fecha_ini=datetime(anio,mes,1)
         self.fecha_fin=datetime(anio,mes,calendar.monthrange(anio, mes)[1])
         
-        self.periodo_reporte, self.directorio_reporte,self.archivo_reporte=obtener_datos_reporte(self.fecha_ini,self.fecha_fin,self.directorio_trabajo,self.cmbx_zona.currentText())
+        self.periodo_reporte, self.directorio_reporte,self.archivo_reporte=obtener_datos_reporte(
+            self.fecha_ini, self.fecha_fin, self.directorio_trabajo, self.cmbx_zona.currentText(), tipo_forzado=1
+        )
         self.recopilacion(self.fecha_ini,self.fecha_fin)
         self.Btn_guardar.setEnabled(True)
+        dest_txt = self._ruta_destino_actual()
+        self._registrar_bitacora(
+            f"✓ Mes cargado día por día ({self.periodo_reporte}).\n"
+            f"  • Sismos en catálogo: {max(0, len(self.catalogo) - 1)}  |  Eventos totales: {len(self.eventos)}\n"
+            f"  • Destino de guardado: {dest_txt}"
+        )
 
     def semana_(self):
+        self.inicializar_variables()
         anio=int(self.comboBox_anio.currentText())
         semana=int(self.comboBox_semana.currentText())
         self.fecha_ini = datetime.strptime(f'{anio}-W{semana}-1', '%G-W%V-%u')#.replace(hour=0, minute=0, second=0)
         self.fecha_fin = self.fecha_ini + timedelta(days=6)
-        self.periodo_reporte, self.directorio_reporte,self.archivo_reporte=obtener_datos_reporte(self.fecha_ini,self.fecha_fin,self.directorio_trabajo,self.cmbx_zona.currentText())
+        self.periodo_reporte, self.directorio_reporte,self.archivo_reporte=obtener_datos_reporte(
+            self.fecha_ini, self.fecha_fin, self.directorio_trabajo, self.cmbx_zona.currentText(), tipo_forzado=2
+        )
         self.recopilacion(self.fecha_ini,self.fecha_fin)
         self.Btn_guardar.setEnabled(True)
+        dest_txt = self._ruta_destino_actual()
+        self._registrar_bitacora(
+            f"✓ Semana ISO {semana} del {anio} cargada día por día ({self.periodo_reporte}).\n"
+            f"  • Sismos en catálogo: {max(0, len(self.catalogo) - 1)}  |  Eventos totales: {len(self.eventos)}\n"
+            f"  • Destino de guardado: {dest_txt}"
+        )
 
     def periodo(self):
+        self.inicializar_variables()
         self.fecha_ini=self.dateEdit_ini.date().toPyDate() #Transforma el QdataEdit en formato date de python
         self.fecha_ini=datetime.combine(self.fecha_ini, time(0,0,0))#Transforma los datos tipo date a tipo datetime
         self.fecha_fin=self.dateEdit_fin.date().toPyDate()
         self.fecha_fin=datetime.combine(self.fecha_fin, time(0,0,0))#Transforma los datos tipo date a tipo datetime
-        self.periodo_reporte, self.directorio_reporte,self.archivo_reporte=obtener_datos_reporte(self.fecha_ini,self.fecha_fin,self.directorio_trabajo,self.cmbx_zona.currentText())
+        self.periodo_reporte, self.directorio_reporte,self.archivo_reporte=obtener_datos_reporte(
+            self.fecha_ini, self.fecha_fin, self.directorio_trabajo, self.cmbx_zona.currentText(),
+            tipo_forzado=self._obtener_tipo_periodo_activo()
+        )
         self.recopilacion(self.fecha_ini,self.fecha_fin)
         self.Btn_guardar.setEnabled(True)
+        dest_txt = self._ruta_destino_actual()
+        self._registrar_bitacora(
+            f"✓ Período cargado día por día ({self.periodo_reporte}).\n"
+            f"  • Sismos en catálogo: {max(0, len(self.catalogo) - 1)}  |  Eventos totales: {len(self.eventos)}\n"
+            f"  • Destino de guardado: {dest_txt}"
+        )
 
     def estaciones(self):
         print('¡¡Recopilando informacion!!')
-        self.eventos=[]
-        self.fecha_ini=self.dateEdit_ini.date().toPyDate() #Transforma el QdataEdit en formato date de python
-        self.fecha_ini=datetime.combine(self.fecha_ini, time(0,0,0))#Transforma los datos tipo date a tipo datetime
-        self.fecha_fin=self.dateEdit_fin.date().toPyDate()
-        self.fecha_fin=datetime.combine(self.fecha_fin, time(0,0,0))#Transforma los datos tipo date a tipo datetime
-        self.periodo_reporte, self.directorio_reporte,self.archivo_reporte=obtener_datos_reporte(self.fecha_ini,self.fecha_fin,self.directorio_trabajo,self.cmbx_zona.currentText())
+        self.inicializar_variables()
+        f_ini_sel, f_fin_sel = self._obtener_rango_fechas_seleccionado()
+        self.fecha_ini = f_ini_sel
+        self.fecha_fin = f_fin_sel
+        self.periodo_reporte, self.directorio_reporte,self.archivo_reporte=obtener_datos_reporte(
+            self.fecha_ini, self.fecha_fin, self.directorio_trabajo, self.cmbx_zona.currentText(),
+            tipo_forzado=self._obtener_tipo_periodo_activo()
+        )
         self.recopilacion(self.fecha_ini,self.fecha_fin)
         eventos_escogidos=[]
         for eventos in self.eventos:
@@ -661,6 +1219,12 @@ class Reporte_periodo(QMainWindow):
         escritura_archivo(nombre_,eventos_escogidos)
         print('Guardando en   ',nombre_)
         print('¡¡Terminado!!')
+        self._registrar_bitacora(
+            f"✓ Reporte de amplitudes por estación exportado:\n"
+            f"  • Estación: {self.Cmb_bx_estacion.currentText()} ({aux_nombre}) | Tipo: {self.Cmb_bx_tipo_evento.currentText()}\n"
+            f"  • Registros encontrados: {len(eventos_escogidos)}\n"
+            f"  • Archivo: {nombre_}"
+        )
 
 
 
@@ -683,116 +1247,323 @@ class Reporte_periodo(QMainWindow):
 # DIA;SISMO;FF;FC;TELESISMO;Evento Local;INDEFINIDO;Ruido
 #Total:;     ;  ;  ;         ;            ;          ;     
         fecha=fecha_inicio
-        while fecha <= fecha_fin:#while fecha < fecha_fin:
-            fecha_ = QDate(fecha.year, fecha.month,fecha.day)
-            archivo=os.path.join(self.directorio_trabajo,fecha_.toString('yyyyMMdd000000'))
-            self.directorios=obtener_directorios(archivo)
+        dias_actualizados = 0
+        cascadas_totales = set()
+        while fecha <= fecha_fin:
+            fecha_ = QDate(fecha.year, fecha.month, fecha.day)
+            archivo = os.path.join(self.directorio_trabajo, fecha_.toString('yyyyMMdd000000'))
+            self.directorios = obtener_directorios(archivo)
             if os.path.exists(self.directorios['Directorio_base']):
-                eventos_reporte,catalogo,\
-                eventos,vector,canales_eventos_dia,\
-                self.root,self.responsable,resumen=cargar_dia(self.directorios)
-                self.eventos=self.eventos+eventos
-                self.catalogo=self.catalogo+catalogo[1:]
-                self.eventos_reporte=self.eventos_reporte+eventos_reporte[1:]
-                self.resumen=self.resumen+lectura_resumen(self.directorios['archivo_resumen'])
-                self.reporte_total=self.reporte_total+lectura_resumen(self.directorios['archivo_responsables'])
-                # Cargar el segundo archivo XML
-                tree2 = ET.parse(self.directorios['archivo_xml'])
-                raiz2 = tree2.getroot()
-                # Agregar los elementos del segundo archivo al primer archivo
-                for child in raiz2:
-                    self.raiz.append(child)    
+                (
+                    eventos_reporte,
+                    catalogo,
+                    eventos,
+                    vector,
+                    canales_eventos_dia,
+                    root_dia,
+                    responsable_dia,
+                    resumen_dia,
+                ) = cargar_dia(self.directorios)
+
+                # Persistencia en disco día por día (sin generar PDF) y actualización en cascada
+                try:
+                    Guardar_dia(
+                        eventos_reporte,
+                        catalogo,
+                        eventos,
+                        root_dia,
+                        responsable_dia,
+                        resumen_dia,
+                        self.directorios,
+                    )
+                    act_cascada = actualizar_periodos_emitidos_desde_fecha(fecha, self.directorio_trabajo)
+                    if act_cascada:
+                        cascadas_totales.update(act_cascada)
+                    dias_actualizados += 1
+                except Exception as err_dia:
+                    print(f"Aviso actualizando día {fecha}: {err_dia}")
+
+                self.eventos = self.eventos + eventos
+                self.catalogo = self.catalogo + catalogo[1:]
+                self.eventos_reporte = self.eventos_reporte + eventos_reporte[1:]
+                self.resumen = self.resumen + lectura_resumen(self.directorios['archivo_resumen'])
+                self.reporte_total = self.reporte_total + lectura_resumen(self.directorios['archivo_responsables'])
+                for child in root_dia:
+                    self.raiz.append(child)
             fecha = fecha + timedelta(1)  # Suma a fecha actual 1 día
         self.Respaldar_catalogo()
+        if dias_actualizados > 0 and cascadas_totales:
+            print(f"✓ Cascada de períodos actualizada para {dias_actualizados} días: {', '.join(sorted(cascadas_totales))}")
+        self.actualizar_vista_gis()
 
+    # =========================================================================
+    # MOTOR DE FILTRADO SISMOLÓGICO (PROFUNDIDAD, MAGNITUD, N° ESTACIONES Y REGIÓN)
+    # =========================================================================
+    def _cumple_filtro_profundidad(self, profundidad_km: float) -> bool:
+        """
+        Evalúa si una profundidad focal (en km, valor absoluto) cumple con la configuración
+        activa en la Zona 2:
+          - Modo 1 ('rb_prof_rango' activo): Rango numérico exacto [spin_prof_min .. spin_prof_max].
+          - Modo 2 ('rb_prof_estratos' activo): Casillas por estrato estándar RSA:
+              * Superficial (< 40 km)  -> ck_prof_sup
+              * Medio (40 a 70 km)     -> ck_prof_med
+              * Profundo (> 70 km)     -> ck_prof_pro
+          - Fallback: Si se invoca sin los controles nuevos, usa el combo `cmbx_profundidad`.
+        """
+        prof = abs(float(profundidad_km))
+        if hasattr(self, 'rb_prof_rango') and self.rb_prof_rango.isChecked():
+            p_min = float(self.spin_prof_min.value())
+            p_max = float(self.spin_prof_max.value())
+            if p_min > p_max:
+                p_min, p_max = p_max, p_min
+            return p_min <= prof <= p_max
+
+        if hasattr(self, 'rb_prof_estratos') and self.rb_prof_estratos.isChecked():
+            inc_sup = bool(self.ck_prof_sup.isChecked()) if hasattr(self, 'ck_prof_sup') else True
+            inc_med = bool(self.ck_prof_med.isChecked()) if hasattr(self, 'ck_prof_med') else True
+            inc_pro = bool(self.ck_prof_pro.isChecked()) if hasattr(self, 'ck_prof_pro') else True
+            if prof < 40.0:
+                return inc_sup
+            elif prof <= 70.0:
+                return inc_med
+            else:
+                return inc_pro
+
+        # Fallback por combo tradicional cmbx_profundidad
+        prof_filtro = {
+            'Todos': [0.0, 1000.0],
+            'Superficiales': [0.0, 40.0],
+            'Medios': [40.0, 70.0],
+            'Profundos': [70.0, 1000.0],
+            'Sup. y Medios': [0.0, 70.0],
+            'Medios y prof.': [40.0, 1000.0]
+        }
+        rango = prof_filtro.get(self.cmbx_profundidad.currentText(), [0.0, 1000.0])
+        return rango[0] <= prof <= rango[1]
+
+    def _cumple_filtro_magnitud(self, magnitud_val: float) -> bool:
+        """
+        Evalúa si una magnitud cumple con la configuración activa en la Zona 2:
+          - Modo 1 ('rb_mag_rango' activo): Rango numérico [spin_mag_min .. spin_mag_max].
+          - Modo 2 ('rb_mag_todos' activo o por defecto): Evalúa el umbral rápido en `cmbx_magnitud`
+            ('todos' acepta cualquier magnitud; un valor numérico exige magnitud >= umbral).
+        """
+        mag = float(magnitud_val)
+        if hasattr(self, 'rb_mag_rango') and self.rb_mag_rango.isChecked():
+            m_min = float(self.spin_mag_min.value())
+            m_max = float(self.spin_mag_max.value())
+            if m_min > m_max:
+                m_min, m_max = m_max, m_min
+            return m_min <= mag <= m_max
+
+        try:
+            umbral = float(self.cmbx_magnitud.currentText())
+            return mag >= umbral
+        except ValueError:
+            return True
+
+    def _cumple_filtro_red(self, fila_cat) -> bool:
+        """
+        Evalúa si un registro de catálogo cumple con la opción activa en `cmbx_filtro_red`:
+          - Índice 0 ('Solo Red Sísmica (RSA)' - opción por defecto y habitual en reportes):
+              Acepta únicamente sismos de la red RSA (Fuente == 'RSA' o Id con sufijo '00').
+          - Índice 1 ('Todas las redes'):
+              Acepta tanto sismos de la RSA como de otras redes (IGEPN, USGS, etc.).
+          - Índice 2 ('Solo Otras redes'):
+              Acepta exclusivamente sismos de otras redes (Fuente != 'RSA' y sin sufijo '00').
+        """
+        if not fila_cat or len(fila_cat) <= IDX_FUENTE:
+            return True
+        fuente = str(fila_cat[IDX_FUENTE]).strip().upper()
+        id_ev = str(fila_cat[IDX_INDICE]).strip()
+        es_rsa = (fuente == 'RSA' or (len(id_ev) >= 2 and id_ev.endswith('00')))
+
+        modo_red = self.cmbx_filtro_red.currentIndex() if hasattr(self, 'cmbx_filtro_red') else 0
+        if modo_red == 0:     # Solo RSA
+            return es_rsa
+        elif modo_red == 2:   # Solo Otras redes
+            return not es_rsa
+        return True           # Todas las redes
+
+    def _cumple_filtro_red_xml(self, es_rsa_xml: bool) -> bool:
+        """Aplica el mismo criterio de red al filtrado de nodos en el árbol XML."""
+        modo_red = self.cmbx_filtro_red.currentIndex() if hasattr(self, 'cmbx_filtro_red') else 0
+        if modo_red == 0:
+            return es_rsa_xml
+        elif modo_red == 2:
+            return not es_rsa_xml
+        return True
+
+    def _construir_mapa_conteo_estaciones(self) -> dict:
+        """
+        Construye un diccionario {clave_evento: numero_estaciones} a partir del árbol XML
+        (`self.raiz`) y de la matriz diaria (`self.eventos`) para clasificar con precisión
+        qué sismos cumplen el mínimo de estaciones requerido para mecanismos focales.
+        """
+        conteo = {}
+        if hasattr(self, 'raiz') and self.raiz is not None:
+            for ev_xml in self.raiz.findall('.//Evento'):
+                n_reg = len(list(ev_xml.iterfind("estaciones/estacion")))
+                id_ev = (ev_xml.findtext('id_evento') or '').strip()
+                ruta_ev = (ev_xml.findtext('ruta') or '').strip()
+                if id_ev:
+                    conteo[id_ev] = max(conteo.get(id_ev, 0), n_reg)
+                if ruta_ev:
+                    nom_sis = os.path.basename(ruta_ev)
+                    conteo[nom_sis] = max(conteo.get(nom_sis, 0), n_reg)
+                    conteo[ruta_ev] = max(conteo.get(ruta_ev, 0), n_reg)
+
+        for fila_ev in getattr(self, 'eventos', []):
+            if not fila_ev or len(fila_ev) < 4:
+                continue
+            ev_sis = str(fila_ev[1]).strip()
+            n_activas = sum(1 for token in fila_ev[3:] if token and token != '-')
+            if ev_sis and ev_sis not in conteo:
+                conteo[ev_sis] = n_activas
+
+        return conteo
 
     def filtros(self):
-        # Crear un nuevo árbol XML para almacenar los eventos filtrados
+        """
+        Aplica el recorte espacial de la `REGION` seleccionada (`cmbx_zona`) y, cuando la
+        casilla `ck_box_filtro` está marcada, filtra tanto `self.catalogo` (Mapa PDF y _cat.csv)
+        como `self.nuevo_arbol` (.xml) por:
+          1. Profundidad (por estratos Superficial/Medio/Profundo o por rango numérico en km).
+          2. Magnitud (por umbral rápido o por rango numérico Mín–Máx en Md).
+          3. Número mínimo de estaciones caracterizadas (`cmbx_n_estaciones` para mecanismos focales).
+        """
         self.nuevo_arbol = ET.ElementTree(ET.Element('sismo'))
-        if True:#if self.cmbx_zona.currentIndex()>2:#If True:  # Para poder filtrar todo.
-        # Definir los rangos de valores
-        # Crear un nuevo árbol de elementos para almacenar los eventos filtrados
-            coord_=self.coordenadas[self.cmbx_zona.currentIndex()]
-            lat2 = float(coord_[1])
-            lat1 = float(coord_[0])
-            long2 = float(coord_[3])
-            long1 = float(coord_[2])
-            estaciones=coord_[5].split()
-            eventos_filtrados = []
+        aplicar_filtros_sismologicos = (
+            bool(self.ck_box_filtro.isChecked()) if hasattr(self, 'ck_box_filtro') else True
+        )
+        filtrar_nest_en_catalogo = (
+            bool(self.ck_nest_catalogo.isChecked()) if hasattr(self, 'ck_nest_catalogo') else True
+        )
+
+        coord_ = self.coordenadas[self.cmbx_zona.currentIndex()]
+        lat2 = float(coord_[1])
+        lat1 = float(coord_[0])
+        long2 = float(coord_[3])
+        long1 = float(coord_[2])
+        estaciones = coord_[5].split()
+
+        try:
+            n_est_ = float(self.cmbx_n_estaciones.currentText()) if aplicar_filtros_sismologicos else 0.0
+        except ValueError:
+            n_est_ = 0.0
+
+        mapa_conteo_est = self._construir_mapa_conteo_estaciones() if n_est_ > 0 else {}
+
+        eventos_filtrados = [self.catalogo[0]]
+        n_eventos = len(self.catalogo)
+
+        for i in range(1, n_eventos):
+            fila_cat = self.catalogo[i]
+            if not fila_cat:
+                continue
             try:
-                mag_=float(self.cmbx_magnitud.currentText())
-            except ValueError:
-                mag_=0.0
+                latitud = float(fila_cat[IDX_LATITUD])
+                longitud = float(fila_cat[IDX_LONGITUD])
+                profundidad = float(fila_cat[IDX_PROFUNDIDAD])
+                magnitud = float(fila_cat[IDX_MAGNITUD])
+            except (ValueError, IndexError):
+                continue
+
+            # Filtro por Red Sísmica / Origen (Solo RSA por defecto vs Todas las redes vs Solo Otras redes)
+            if not self._cumple_filtro_red(fila_cat):
+                continue
+
+            # Verificar filtros de Profundidad, Magnitud y N° de Estaciones cuando están activos
+            if aplicar_filtros_sismologicos:
+                if not self._cumple_filtro_profundidad(profundidad):
+                    continue
+                if not self._cumple_filtro_magnitud(magnitud):
+                    continue
+                if n_est_ > 0 and filtrar_nest_en_catalogo:
+                    id_cat = str(fila_cat[IDX_INDICE]).strip()
+                    ruta_cat = str(fila_cat[IDX_EVENTO]).strip()
+                    n_est_ev = max(
+                        mapa_conteo_est.get(id_cat, 0),
+                        mapa_conteo_est.get(ruta_cat, 0),
+                        mapa_conteo_est.get(os.path.basename(ruta_cat), 0)
+                    )
+                    # Si tenemos conteo registrado para ese sismo y es menor a n_est_, se descarta
+                    if n_est_ev > 0 and n_est_ev < n_est_:
+                        continue
+
+            # Verificar pertenencia al recorte geográfico de la REGION
+            if lat1 <= latitud <= lat2 and long1 <= longitud <= long2:
+                eventos_filtrados.append(fila_cat)
+            else:
+                modo_red = self.cmbx_filtro_red.currentIndex() if hasattr(self, 'cmbx_filtro_red') else 0
+                fuente_cat = str(fila_cat[IDX_FUENTE]).strip().upper()
+                id_cat_ev = str(fila_cat[IDX_INDICE]).strip()
+                es_rsa_ev = (fuente_cat == 'RSA' or (len(id_cat_ev) >= 2 and id_cat_ev.endswith('00')))
+                if modo_red in (1, 2) and not es_rsa_ev:
+                    directorios = obtener_directorios(fila_cat[IDX_EVENTO])
+                    for estacion in estaciones:
+                        evento_mseed = (
+                            self.directorio_trabajo + '/' + directorios['Directorio_eventos'] +
+                            '/' + self.parametros['CODIGO'][int(estacion)] + directorios['sufijo_mseed']
+                        )
+                        print(evento_mseed)
+                    eventos_filtrados.append(fila_cat)
+
+        self.catalogo = eventos_filtrados
+        numero_dias = self.fecha_fin - self.fecha_ini
+
+        # Si el perfil del mapa seleccionado es 'vector_filtrado' (4:Reportes y >=5:Proyectos/GADs),
+        # self.resumen se convierte en un vector diario con el conteo exclusivo de sismos RSA dentro del polígono.
+        perfil_mapa = obtener_perfil_mapa(self.cmbx_zona.currentIndex(), es_periodo=True)
+        if perfil_mapa['tipo_resumen_estadistico'] == 'vector_filtrado':
+            self.resumen = []
+            for i in range(0, numero_dias.days + 3):
+                self.resumen.append(0)
+            for evento in self.catalogo:
+                if evento[IDX_INDICE] != 'Id' and evento[IDX_FUENTE] == 'RSA':
+                    fecha_it = datetime(
+                        int(evento[IDX_INDICE][0:4]),
+                        int(evento[IDX_INDICE][4:6]),
+                        int(evento[IDX_INDICE][6:8])
+                    )
+                    contador = fecha_it - self.fecha_ini
+                    if 0 <= contador.days + 2 < len(self.resumen):
+                        self.resumen[contador.days + 2] = self.resumen[contador.days + 2] + 1
+
+        # Filtrado consistente del árbol XML (Región + Red + Profundidad + Magnitud + N° Mínimo de Estaciones)
+        for evento in self.raiz.findall('.//Evento'):
             try:
-                n_est_=float(self.cmbx_n_estaciones.currentText())
-            except ValueError:
-                n_est_=0.0
-            eventos_filtrados.append(self.catalogo[0])
-            n_eventos=len(self.catalogo)
-###########FIltro del catálogo, son los eventos dentro del marco mas los eventos de IGEPN
-
-            
-            prof_filtro={'Todos':[0.0,1000.0],      #Todos los eventos
-           'Superficiales':[0.0,40.0],              #Solo superficiales
-           'Medios':[40.0,70.0],                    #Solo medios
-           'Profundos':[70.0,1000.0],               #Solo profundos
-           'Sup. y Medios':[0.0,70.0],              #Superficiales y medios
-           'Medios y prof.':[70.0,1000.0]}          #Medios y profundos.
-            profundidades_filtro=prof_filtro[self.cmbx_profundidad.currentText()]
-            prof_min=profundidades_filtro[0]
-            prof_max=profundidades_filtro[1]
-            print("Magnitud:",mag_,"Estaciones:",n_est_,"Profundidades:",profundidades_filtro)
-            for i in range(1, n_eventos):
-                latitud = float(self.catalogo[i][IDX_LATITUD])
-                longitud = float(self.catalogo[i][IDX_LONGITUD])
-                profundidad=float(self.catalogo[i][IDX_PROFUNDIDAD])
-                magnitud=float(self.catalogo[i][IDX_MAGNITUD])
-                if lat1 <= latitud <= lat2 and long1 <= longitud <= long2:
-                    if prof_min <= profundidad <= prof_max:
-                        if mag_<=magnitud:
-                            eventos_filtrados.append(self.catalogo[i])
-                else:
-                    
-                    if self.catalogo[i][17]!='RSA':
-                        #resultado = [sublista for sublista in self.eventos if sublista[2] == valor_a_buscar]
-                        directorios=obtener_directorios(self.catalogo[i][18])
-                        for estacion in estaciones:
-                            evento_mseed=self.directorio_trabajo+'/'+directorios['Directorio_eventos']+'/'+self.parametros['CODIGO'][int(estacion)]+directorios['sufijo_mseed']
-                            print(evento_mseed)
-                        eventos_filtrados.append(self.catalogo[i])
-
-
-            self.catalogo=eventos_filtrados
-            numero_dias=self.fecha_fin-self.fecha_ini
-            #valor_inicial= int(self.fecha_ini.strftime("%Y%m%d"))
-            #valor_final= int(self.fecha_fin.strftime("%Y%m%d"))
-            if self.cmbx_zona.currentIndex()>3:# MNATIENE LA VARIABLE self.resumen cuando 
-                self.resumen=[]
-
-############Inicializacion del resumen
-                for i in range(0,numero_dias.days+3):
-                    self.resumen.append(0)# Truco, para que coja como vector y no como entero
-                for evento in self.catalogo:
-                    if evento[IDX_INDICE]!='Id' and evento[IDX_FUENTE]=='RSA':
-                        fecha_it=datetime(int(evento[IDX_INDICE][0:4]),int(evento[IDX_INDICE][4:6]),int(evento[IDX_INDICE][6:8]))
-                        contador=fecha_it-self.fecha_ini
-                        self.resumen[contador.days+2]=self.resumen[contador.days+2]+1
-            numero_registros = 0
-            for evento in self.raiz.findall('.//Evento'):
-                # Obtener los valores de longitud y latitud
                 longitud = float(evento.find('longitud').text)
                 latitud = float(evento.find('latitud').text)
                 magnitud = float(evento.find('magnitud').text)
-                registros = list(evento.iterfind("estaciones/estacion"))
-                numero_registros = len(registros)
-                if long1 <= longitud <= long2 and lat1 <= latitud <= lat2 and magnitud>=mag_ and numero_registros>=n_est_:
-        # Crear un nuevo elemento de evento y copiar todos los atributos
-                    nuevo_evento = ET.SubElement(self.nuevo_arbol.getroot(), 'Evento')
-                    for child in evento:
-                        nuevo_evento.append(child)
-                    self.nuevo_arbol.getroot().append(nuevo_evento)
-        else:
-            self.nuevo_arbol=self.arbol
+                prof_texto = evento.findtext('profundidad')
+                profundidad_xml = float(prof_texto) if prof_texto is not None else 0.0
+                id_ev_xml = (evento.findtext('id_evento') or '').strip()
+                fuente_xml = (evento.findtext('fuente') or '').strip().upper()
+                es_rsa_xml = (fuente_xml == 'RSA' or not fuente_xml or id_ev_xml.endswith('00'))
+            except (AttributeError, ValueError, TypeError):
+                continue
+
+            if not self._cumple_filtro_red_xml(es_rsa_xml):
+                continue
+
+            registros = list(evento.iterfind("estaciones/estacion"))
+            numero_registros = len(registros)
+
+            if not (long1 <= longitud <= long2 and lat1 <= latitud <= lat2):
+                continue
+
+            if aplicar_filtros_sismologicos:
+                if not self._cumple_filtro_profundidad(profundidad_xml):
+                    continue
+                if not self._cumple_filtro_magnitud(magnitud):
+                    continue
+                if numero_registros < n_est_:
+                    continue
+
+            nuevo_evento = ET.SubElement(self.nuevo_arbol.getroot(), 'Evento')
+            for child in evento:
+                nuevo_evento.append(copy.deepcopy(child))
 
 
     def Cargar_catalogo(self):
@@ -888,9 +1659,15 @@ class Reporte_periodo(QMainWindow):
             self.arbol = ET.parse(os.path.join(carpeta, base + ".xml"))
             self.raiz = self.arbol.getroot()
             self.Respaldar_catalogo()
+            self.actualizar_vista_gis()
             self.dateEdit_ini.setDate(QDate(self.fecha_ini.year, self.fecha_ini.month, self.fecha_ini.day))
             self.dateEdit_fin.setDate(QDate(self.fecha_fin.year, self.fecha_fin.month, self.fecha_fin.day))
             self.Btn_guardar.setEnabled(True)
+            self._registrar_bitacora(
+                f"✓ Catálogo cargado directamente desde carpeta 'Ecuador':\n"
+                f"  • Período: {self.periodo_reporte}\n"
+                f"  • Total de sismos en catálogo: {max(0, len(self.catalogo) - 1)}"
+            )
             QMessageBox.information(
                 self,
                 "Catálogo cargado",
@@ -901,86 +1678,154 @@ class Reporte_periodo(QMainWindow):
             QMessageBox.critical(self, "Error", f"No se pudo cargar el catálogo:\n{str(e)}")
 
 
-    def acumular_solo_catalogo(self):
-        if not self.ck_box_historico.isChecked():
-            return  # Si no está activado el checkbox, no se ejecuta nada
+    def acumular_solo_catalogo(self, fecha_ini_explicita=None, fecha_fin_explicita=None):
+        """
+        Algoritmo inteligente de consolidación rápida basado en unidades básicas (`_cat.csv`):
+          - Descompone el intervalo [fecha_ini, fecha_fin] en la secuencia jerárquica:
+                días -> semanas -> meses -> años -> meses -> semanas -> días
+            usando `generar_directorios_unidades_basicas(..., verificar_existencia=True, detallar=True)`.
+          - Para cada unidad mayor existente en `Ecuador` (Año, Mes o Semana ISO), carga su
+            `_cat.csv` y archivos compañeros (`_rep.csv`, `_res.csv`, `_rep_total.csv`, `.xml`)
+            en una sola lectura, descendiendo automáticamente a niveles más finos solo cuando
+            un bloque consolidado aún no existe en disco.
+          - Inicializa formalmente `self.fecha_ini`, `self.fecha_fin`, `self.periodo_reporte`
+            y `self.directorio_reporte` para que `Guardar_()` funcione sin errores.
+        """
+        if fecha_ini_explicita is None and not self.ck_box_historico.isChecked():
+            return
 
         try:
-            # Obtener fechas del usuario desde los widgets
-            fecha_ini = self.dateEdit_ini_cat.date().toPyDate()
-            fecha_fin = self.dateEdit_fin_cat.date().toPyDate()
+            self.inicializar_variables()
+            if fecha_ini_explicita is not None and fecha_fin_explicita is not None:
+                fecha_ini_dt = fecha_ini_explicita
+                fecha_fin_dt = fecha_fin_explicita
+            else:
+                f_i = self.dateEdit_ini_cat.date().toPyDate()
+                f_f = self.dateEdit_fin_cat.date().toPyDate()
+                fecha_ini_dt = datetime.combine(f_i, time(0, 0, 0))
+                fecha_fin_dt = datetime.combine(f_f, time(0, 0, 0))
 
-            # Inicializar catálogo con la cabecera estándar
-            self.catalogo = [["Id", "año", "mes", "día", "hora", "min", "seg", "lat", "long", "prof", "rms",
-                              "e-x", "e-y", "e-0", "e-z", "Mag", "Tipo Mag", "Fuente", "ruta", "Ubicación"]]
-
-            anios_procesados = set()
-            fecha_actual = fecha_ini
-
-            while fecha_actual <= fecha_fin:
-                anio = fecha_actual.strftime("%Y")
-
-                # Si ya se procesó este año, continuar
-                if anio in anios_procesados:
-                    fecha_actual += timedelta(days=1)
-                    continue
-
-                # Buscar si existe el archivo resumen anual: DIA/AAAA/reportes/Ecuador/AAAA_cat.csv
-                archivo_anual = os.path.join(
-                    self.directorio_trabajo, anio, "reportes", "Ecuador", f"{anio}_cat.csv"
-                )
-
-                if os.path.isfile(archivo_anual):
-                    try:
-                        datos = lectura_archivo(archivo_anual)
-                        if datos and datos[0][0] == "Id":
-                            self.catalogo.extend(datos[1:])  # Ignorar cabecera
-                        else:
-                            self.catalogo.extend(datos)
-                        print(f"✓ Se cargó archivo anual: {archivo_anual}")
-                    except Exception as e:
-                        print(f"Error leyendo {archivo_anual}: {e}")
-
-                    # Marcar año como procesado y saltar al siguiente
-                    anios_procesados.add(anio)
-                    fecha_actual = datetime(int(anio) + 1, 1, 1)
-                    continue
-
-                # Si no existe archivo resumen, intentar día por día
-                mes = fecha_actual.strftime("%Y_%m")
-                dia = fecha_actual.strftime("%Y_%m_%d")
-                nombre_archivo = fecha_actual.strftime("%y%m%d") + "000000_cat.csv"
-                ruta_archivo = os.path.join(
-                    self.directorio_trabajo, anio, mes, dia, nombre_archivo
-                )
-
-                if os.path.isfile(ruta_archivo):
-                    try:
-                        datos = lectura_archivo(ruta_archivo)
-                        if datos and datos[0][0] == "Id":
-                            self.catalogo.extend(datos[1:])
-                        else:
-                            self.catalogo.extend(datos)
-                    except Exception as e:
-                        print(f"Error al leer archivo {ruta_archivo}: {e}")
-                else:
-                    print(f"Archivo no encontrado: {ruta_archivo}")
-
-                fecha_actual += timedelta(days=1)
-
-            # Respaldar los datos cargados
-            self.Respaldar_catalogo()
-
-            # Mostrar mensaje
-            QMessageBox.information(
-                self,
-                "Catálogo histórico acumulado",
-                f"Se acumularon eventos desde {fecha_ini.strftime('%d/%m/%Y')} hasta {fecha_fin.strftime('%d/%m/%Y')}.\n"
-                f"Total de eventos cargados: {len(self.catalogo) - 1}"
+            self.fecha_ini = fecha_ini_dt
+            self.fecha_fin = fecha_fin_dt
+            self.periodo_reporte, self.directorio_reporte, self.archivo_reporte = obtener_datos_reporte(
+                self.fecha_ini, self.fecha_fin, self.directorio_trabajo, self.cmbx_zona.currentText(),
+                tipo_forzado=self._obtener_tipo_periodo_activo()
             )
 
-            # Habilitar botón para exportar
+            unidades = generar_directorios_unidades_basicas(
+                fecha_ini_dt,
+                fecha_fin_dt,
+                self.directorio_trabajo,
+                verificar_existencia=True,
+                detallar=True,
+            )
+
+            conteo_unidades = {'PERIODO': 0, 'ANIO': 0, 'MES': 0, 'SEMANA': 0, 'DIA': 0}
+
+            for unidad in unidades:
+                tipo_u = unidad['tipo']
+                prefijo = unidad['prefijo']
+                ruta_cat = f"{prefijo}_cat.csv"
+
+                if not os.path.isfile(ruta_cat):
+                    continue
+
+                try:
+                    datos = lectura_archivo(ruta_cat)
+                    if datos and datos[0][0] == "Id":
+                        self.catalogo.extend(datos[1:])
+                    elif datos:
+                        self.catalogo.extend(datos)
+
+                    if tipo_u in ('PERIODO', 'ANIO', 'MES', 'SEMANA'):
+                        ruta_rep = f"{prefijo}_rep.csv"
+                        ruta_res = f"{prefijo}_res.csv"
+                        ruta_rtot = f"{prefijo}_rep_total.csv"
+                        ruta_xml = f"{prefijo}.xml"
+
+                        if os.path.isfile(ruta_rep):
+                            d_rep = lectura_archivo(ruta_rep)
+                            self.eventos_reporte.extend(
+                                d_rep[1:] if d_rep and d_rep[0][0] == "Nº" else (d_rep or [])
+                            )
+                        if os.path.isfile(ruta_res):
+                            d_res = lectura_resumen(ruta_res)
+                            for fila_r in (d_res or []):
+                                if not fila_r or fila_r[0] in ("DIA", "Total:"):
+                                    continue
+                                # Normalizar a 7 columnas diarias si el consolidado incluye columna 'DIA' al inicio
+                                self.resumen.append(fila_r[-7:] if len(fila_r) >= 8 else fila_r)
+                        if os.path.isfile(ruta_rtot):
+                            d_rtot = lectura_resumen(ruta_rtot)
+                            self.reporte_total.extend(
+                                [r for r in (d_rtot or []) if r and r[0] != "RESPONSABLE"]
+                            )
+                        if os.path.isfile(ruta_xml):
+                            raiz_u = ET.parse(ruta_xml).getroot()
+                            for child in raiz_u:
+                                self.raiz.append(child)
+
+                        conteo_unidades[tipo_u] += 1
+                        print(f"✓ Se cargó unidad [{tipo_u}] existente: {ruta_cat}")
+                    else:
+                        # Unidad DIA individual (AAMMDD000000)
+                        ruta_dat = f"{prefijo}_rep.csv"
+                        if not os.path.isfile(ruta_dat):
+                            ruta_dat = f"{prefijo}_dat.csv"
+                        ruta_res = f"{prefijo}_res.csv"
+                        carpeta_dia = os.path.dirname(prefijo)
+                        stem_dia = os.path.basename(prefijo)
+                        pref_fecha_dia = stem_dia[:-6] if stem_dia.endswith("000000") else stem_dia[:6]
+                        ruta_resp = os.path.join(carpeta_dia, "reportes", f"{pref_fecha_dia}_resp.csv")
+                        if not os.path.isfile(ruta_resp):
+                            ruta_resp = f"{prefijo}_responsables.csv"
+                        ruta_xml = f"{prefijo}.xml"
+
+                        if os.path.isfile(ruta_dat):
+                            d_dat = lectura_archivo(ruta_dat)
+                            self.eventos_reporte.extend(d_dat[1:] if d_dat else [])
+                        if os.path.isfile(ruta_res):
+                            self.resumen.extend(lectura_resumen(ruta_res))
+                        if os.path.isfile(ruta_resp):
+                            self.reporte_total.extend(lectura_resumen(ruta_resp))
+                        if os.path.isfile(ruta_xml):
+                            raiz_d = ET.parse(ruta_xml).getroot()
+                            for child in raiz_d:
+                                self.raiz.append(child)
+
+                        conteo_unidades['DIA'] += 1
+                except Exception as e:
+                    print(f"Error al leer unidad [{tipo_u}] en {ruta_cat}: {e}")
+
+            self.Respaldar_catalogo()
+            self.actualizar_vista_gis()
             self.Btn_guardar.setEnabled(True)
+            dest_txt = self._ruta_destino_actual()
+            partes_res = []
+            if conteo_unidades['PERIODO'] > 0:
+                partes_res.append(f"Período emitido: {conteo_unidades['PERIODO']}")
+            partes_res.extend([
+                f"Años: {conteo_unidades['ANIO']}",
+                f"Meses: {conteo_unidades['MES']}",
+                f"Semanas: {conteo_unidades['SEMANA']}",
+                f"Días: {conteo_unidades['DIA']}",
+            ])
+            resumen_unidades = " | ".join(partes_res)
+            self._registrar_bitacora(
+                f"✓ Catálogo consolidado por unidades básicas (_cat.csv):\n"
+                f"  • Período: {self.periodo_reporte}\n"
+                f"  • Unidades cargadas -> {resumen_unidades}\n"
+                f"  • Total de sismos cargados: {max(0, len(self.catalogo) - 1)}\n"
+                f"  • Destino de guardado: {dest_txt}"
+            )
+
+            QMessageBox.information(
+                self,
+                "Catálogo acumulado (_cat.csv)",
+                f"Se acumularon eventos desde {fecha_ini_dt.strftime('%d/%m/%Y')} hasta {fecha_fin_dt.strftime('%d/%m/%Y')}.\n"
+                f"Unidades consolidadas ({resumen_unidades}).\n"
+                f"Total de sismos cargados: {max(0, len(self.catalogo) - 1)}"
+            )
 
         except Exception as e:
             QMessageBox.critical(
@@ -1025,10 +1870,13 @@ class Reporte_periodo(QMainWindow):
                         self.reporte.append(linea_evento)
                     break  # Ya encontramos el evento
                         
-        # Mostrar resultado final
+        # Mostrar resultado final en consola y en la bitácora de la pantalla
         print("📄 Contenido de self.reporte:")
+        lineas_txt = [f"✓ Archivos .mseed encontrados para las {len(self.estaciones_seleccionadas)} estaciones seleccionadas ({len(self.reporte)} eventos):"]
         for linea in self.reporte:
             print(linea)
+            lineas_txt.append(f"  • {linea[0]}: {', '.join(linea[1:])}")
+        self._registrar_bitacora("\n".join(lineas_txt))
 
 
 
@@ -1040,12 +1888,28 @@ class Reporte_periodo(QMainWindow):
     def limpiar_estado(self):
         """Limpia figuras, visores, hilos, timers, etc., antes de cerrar."""
         try:
-            if hasattr(self, 'canvas'):
+            if hasattr(self, 'canvas') and self.canvas is not None:
                 self.canvas.deleteLater()
                 self.canvas = None
-            if hasattr(self, 'visor'):
+            if hasattr(self, 'visor') and self.visor is not None:
                 self.visor.clf()
                 self.visor = None
+            if hasattr(self, '_ventana_emergente_gis') and self._ventana_emergente_gis is not None:
+                try:
+                    self._ventana_emergente_gis.close()
+                    self._ventana_emergente_gis.deleteLater()
+                    self._ventana_emergente_gis = None
+                    self._widget_mapa_gis_emergente = None
+                except Exception:
+                    pass
+            if hasattr(self, 'widget_mapa_gis') and self.widget_mapa_gis is not None:
+                try:
+                    self.widget_mapa_gis.figure.clf()
+                    self.widget_mapa_gis.canvas.deleteLater()
+                    self.widget_mapa_gis.deleteLater()
+                    self.widget_mapa_gis = None
+                except Exception:
+                    pass
             # Limpieza de listas, buffers o datos
             if hasattr(self, 'stLeido'):
                 del self.stLeido

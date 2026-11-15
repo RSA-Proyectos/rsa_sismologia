@@ -162,16 +162,45 @@ def encontrar_cadena(lista, cadena):
             return i  # Devuelve la ubicación de la cadena en la lista
     return -1  # La cadena no se encuentra en la lista
 
-def dibujo_sismos_(lienzo,vector,coordenadas,tamanio,mapa_,bandera_dia,bandera_relleno):
+def dibujo_sismos_(lienzo,vector,coordenadas,tamanio,mapa_,bandera_dia,bandera_relleno,banderas=None,sismo_principal=None):
     """
-    Metodo para dibujar los sismos en el mapa
-    lienzo:   donde se va dibujar
-    vector:   donde se encuentran las coordenadas de los eventos
-    coordenadas:  variable con las coordenadas del cuadrado en donde se grafica
-    tamnio:tamaño del mapa
-    mapa_:    mapa escogido
-    bandera_dia:  bandera para saver si es reporte diario o de periodo
+    #########################################################################################
+    # Método para proyectar y dibujar los epicentros de la RSA sobre el mapa de portada.
+    # ---------------------------------------------------------------------------------------
+    # lienzo          : Lienzo ReportLab donde se dibuja el mapa.
+    # vector          : Lista de tuplas [lat, lon, prof, mag, red, id_sis] de los sismos.
+    # coordenadas     : Límites geográficos del mapa (lon_min, lat_min, lon_max, lat_max).
+    # tamanio         : Geometría física del mapa en puntos (xpos, ypos, ancho, alto).
+    # mapa_           : Índice del mapa en datos/mapas/mapas.csv (0=Region, 1=Ecuador, 2=Facultad, etc.).
+    # bandera_dia     : True (1) si es reporte de período; False (0) si es reporte diario.
+    # bandera_relleno : True para círculos sólidos con opacidad; False para solo contorno.
+    # banderas        : Diccionario maestro de banderas (PERFILES_MAPA_ZONA en rsa_pdf_catalogo.py):
+    #                     - 'estilo_color_sismos'         : 'por_profundidad' (<40 rojo, 40-70 naranja, >70 azul),
+    #                                                       'azul_unico' (Facultad) o 'halos_difuminados' (Fuentes).
+    #                     - 'escala_circulos'             : 'mitad' (r = mag - 2.5 en Region) o 'normal' (r = 2*mag - 5).
+    #                     - 'etiquetar_magnitud_hora_mapa': True en reporte diario (M2) para rotular Mag/HH:MM.
+    # sismo_principal : Diccionario opcional {'id', 'evento', 'lat', 'lon', 'prof', 'mag', 'unidad_mag'}
+    #                   para secuencias de Sismo Principal + Réplicas. Si se provee, las réplicas se
+    #                   dibujan con la simbología convencional y el sismo principal se dibuja encima
+    #                   con los 5 círculos concéntricos rojos del reporte de evento individual.
+    #########################################################################################
     """
+    estilo_color = (
+        banderas.get('estilo_color_sismos')
+        if isinstance(banderas, dict) and 'estilo_color_sismos' in banderas
+        else ('azul_unico' if mapa_ == 2 else ('halos_difuminados' if mapa_ == 3 else 'por_profundidad'))
+    )
+    escala_circulos = (
+        banderas.get('escala_circulos')
+        if isinstance(banderas, dict) and 'escala_circulos' in banderas
+        else ('mitad' if mapa_ == 0 else 'normal')
+    )
+    etiquetar_evento = (
+        banderas.get('etiquetar_magnitud_hora_mapa')
+        if isinstance(banderas, dict) and 'etiquetar_magnitud_hora_mapa' in banderas
+        else (not bandera_dia)
+    )
+
     longitud_min=coordenadas[0]
     latitud_min=coordenadas[1]
     longitud_max=coordenadas[2]
@@ -182,13 +211,32 @@ def dibujo_sismos_(lienzo,vector,coordenadas,tamanio,mapa_,bandera_dia,bandera_r
     alto=tamanio[3]
     dibujo_sismos = Drawing(ancho, alto)
     aux=len(vector)
+    ev_principal_ruta = (
+        str(sismo_principal.get('evento', '')).strip()
+        if isinstance(sismo_principal, dict)
+        else ''
+    )
     for i in range(0,aux):
         longitud=vector[i][1]
         latitud=vector[i][0]
         profundidad=abs(vector[i][2])
         magnitud=vector[i][3]
+        ruta_actual = str(vector[i][5]).strip() if len(vector[i]) > 5 else ''
+
+        # Si este evento es el Sismo Principal, se reserva para dibujarlo al final (en la capa superior)
+        # con los 5 círculos concéntricos rojos del reporte individual
+        if isinstance(sismo_principal, dict):
+            if ev_principal_ruta and ruta_actual == ev_principal_ruta:
+                continue
+            if (
+                abs(latitud - float(sismo_principal.get('lat', 999))) < 1e-4
+                and abs(longitud - float(sismo_principal.get('lon', 999))) < 1e-4
+                and abs(magnitud - float(sismo_principal.get('mag', -999))) < 1e-3
+            ):
+                continue
+
         filtro=(longitud<=longitud_max)and(longitud>=longitud_min)and(latitud<=latitud_max)and(latitud>=latitud_min)#Variable que indica si la localizacion está dentro del nmapa de despliegue
-        if mapa_==2:#Reporte de Faclutad.
+        if estilo_color == 'azul_unico':#Reporte de Facultad.
             color=colors.blue
         else: #Todos los otros reportes
             if profundidad>=40:
@@ -202,12 +250,12 @@ def dibujo_sismos_(lienzo,vector,coordenadas,tamanio,mapa_,bandera_dia,bandera_r
             if not(vector[i][4]):# Solo ubica los eventos de la RSA(valor 0), ignora los de otras redes(valor 1)
                 x_cen=xpos+(longitud-longitud_min)*ancho/(longitud_max-longitud_min)#x_cen=(longitud+80)*200+xpos
                 y_cen=ypos+(latitud-latitud_min)*alto/(latitud_max-latitud_min)#y_cen=(latitud+4)*200+ypos
-                if mapa_==0: #No entiendo la variable
+                if escala_circulos == 'mitad':
                     r=1*(magnitud)-2.5
                 else:
                     r=2*(magnitud)-5
                 char_=str(magnitud)+'/'+vector[i][5][9:11]+':'+vector[i][5][11:13]
-                if mapa_==3:# Es el mapa para fuentes.
+                if estilo_color == 'halos_difuminados':# Es el mapa para fuentes.
                     if color!=colors.blue:
                         for k in range(1,10):
                             radio=0.05*k*(2**r)
@@ -221,19 +269,140 @@ def dibujo_sismos_(lienzo,vector,coordenadas,tamanio,mapa_,bandera_dia,bandera_r
                         dibujo_sismos.add(Circle(x_cen, y_cen, r, strokeColor=color,strokeWidth = 0.2,fillColor=color,fillOpacity=0.))
                     
 
-                if not(bandera_dia):
+                if etiquetar_evento:
                     dibujo_sismos.add(String(x_cen+1,y_cen+1, char_, fontSize=4, fillColor=colors.red))
     dibujo_sismos.drawOn(lienzo, 0, 0)#dibujo_sismos.drawOn(c, xpos, ypos)
+
+    # Si se especificó un Sismo Principal (modo Sismo Principal + Réplicas), dibujarlo encima de
+    # todas las réplicas exactamente igual que en el reporte de evento solo (5 círculos concéntricos en rojo)
+    if isinstance(sismo_principal, dict):
+        try:
+            lat_p = float(sismo_principal.get('lat', 0.0))
+            lon_p = float(sismo_principal.get('lon', 0.0))
+            mag_p = sismo_principal.get('mag', '')
+            uni_p = str(sismo_principal.get('unidad_mag', 'Md') or 'Md').strip()
+            if (longitud_min <= lon_p <= longitud_max) and (latitud_min <= lat_p <= latitud_max):
+                coor_x = xpos + (lon_p - longitud_min) * ancho / (longitud_max - longitud_min)
+                coor_y = ypos + (lat_p - latitud_min) * alto / (latitud_max - latitud_min)
+                dibujo_sismo_principal = Drawing(10, 10)
+                for valores in [(11, 0.005), (8.5, 0.2), (6, 0.8), (3.5, 1.4), (1, 0.5)]:
+                    dibujo_sismo_principal.add(
+                        Circle(
+                            0,
+                            0,
+                            valores[0],
+                            strokeColor=colors.red,
+                            strokeWidth=valores[1],
+                            fillOpacity=0,
+                        )
+                    )
+                dibujo_sismo_principal.drawOn(lienzo, coor_x, coor_y)
+                lienzo.saveState()
+                lienzo.setFillColor(colors.black)
+                lienzo.setFont('Helvetica-Bold', 8)
+                lienzo.drawString(coor_x - 15, coor_y - 22, f"{mag_p}{uni_p}")
+                lienzo.restoreState()
+        except Exception as err_sp:
+            print(f"Aviso dibujando sismo principal en PDF: {err_sp}")
+
     return lienzo
 
-def caja_simbologia(lienzo,resumen,vector,ubicacion_caja,mapa_,bandera_dia,bandera_relleno):
-    #Linezo    
-    #resumen
-    #vector
-    #coodenadas
-    #tamanio
-    #mapa_
-    #bandera_dia
+
+def dibujar_lugar_geometrico_pdf(lienzo, poligono_enjambre, coordenadas, tamanio):
+    """
+    Dibuja el contorno del lugar geométrico (círculo, rectángulo o polígono de enjambre)
+    sobre el mapa de portada del reporte PDF en ReportLab, recortado a los límites
+    geográficos `coordenadas` = (lon_min, lat_min, lon_max, lat_max).
+    """
+    if poligono_enjambre is None:
+        return lienzo
+    try:
+        from shapely.geometry import Polygon, box
+        from metodos_gis_rsa import construir_poligono_lugar_geometrico
+        poly = construir_poligono_lugar_geometrico(poligono_enjambre)
+        if poly is None or poly.is_empty:
+            return lienzo
+
+        lon_min, lat_min, lon_max, lat_max = (
+            float(coordenadas[0]),
+            float(coordenadas[1]),
+            float(coordenadas[2]),
+            float(coordenadas[3]),
+        )
+        xpos, ypos, ancho, alto = (
+            float(tamanio[0]),
+            float(tamanio[1]),
+            float(tamanio[2]),
+            float(tamanio[3]),
+        )
+
+        recorte_mapa = box(lon_min, lat_min, lon_max, lat_max)
+        poly_recortado = poly.intersection(recorte_mapa)
+        if poly_recortado.is_empty:
+            return lienzo
+
+        geoms = [poly_recortado] if isinstance(poly_recortado, Polygon) else getattr(poly_recortado, 'geoms', [])
+        lienzo.saveState()
+        lienzo.setStrokeColor(colors.HexColor('#1d4ed8'))
+        lienzo.setLineWidth(1.3)
+        lienzo.setDash(4, 2)
+        for g in geoms:
+            if not isinstance(g, Polygon) or g.is_empty:
+                continue
+            coords = list(g.exterior.coords)
+            if len(coords) < 2:
+                continue
+            path = lienzo.beginPath()
+            for idx_pt, (lon_pt, lat_pt) in enumerate(coords):
+                x_pt = xpos + (lon_pt - lon_min) * ancho / (lon_max - lon_min)
+                y_pt = ypos + (lat_pt - lat_min) * alto / (lat_max - lat_min)
+                if idx_pt == 0:
+                    path.moveTo(x_pt, y_pt)
+                else:
+                    path.lineTo(x_pt, y_pt)
+            path.close()
+            lienzo.drawPath(path, stroke=1, fill=0)
+        lienzo.restoreState()
+    except Exception as e:
+        print(f"Aviso dibujando lugar geométrico en PDF: {e}")
+    return lienzo
+
+
+def caja_simbologia(lienzo,resumen,vector,ubicacion_caja,mapa_,bandera_dia,bandera_relleno,banderas=None):
+    #########################################################################################
+    # Método que dibuja los recuadros de simbología (escalas de magnitud y profundidad)
+    # y el resumen de promedios diarios en la portada del reporte.
+    # ---------------------------------------------------------------------------------------
+    # lienzo          : Lienzo ReportLab activo.
+    # resumen         : Matriz global (con fila Total y columnas SISMO/FF) o vector filtrado por día.
+    # vector          : Vector de eventos graficados en el mapa.
+    # ubicacion_caja  : Tupla (pos_x, pos_y) de la esquina inferior izquierda de la caja.
+    # mapa_           : Índice del mapa en datos/mapas/mapas.csv.
+    # bandera_dia     : 1 si es reporte de período, 0 si es reporte diario.
+    # bandera_relleno : True para círculos rellenos, False para círculos sin relleno.
+    # banderas        : Diccionario maestro de banderas (PERFILES_MAPA_ZONA en rsa_pdf_catalogo.py):
+    #                     - 'caja_simbologia_compacta': True en Facultad (240+200 pt, solo azul);
+    #                                                   False en general (295+215 pt, 3 profundidades).
+    #                     - 'escala_circulos'         : 'mitad' o 'normal'.
+    #                     - 'tipo_resumen_estadistico': 'matriz_global' (calcula localizados + sin localizar)
+    #                                                   o 'vector_filtrado' (suma directa de sismos en la zona).
+    #########################################################################################
+    es_caja_compacta = (
+        banderas.get('caja_simbologia_compacta')
+        if isinstance(banderas, dict) and 'caja_simbologia_compacta' in banderas
+        else (mapa_ == 2)
+    )
+    escala_circulos = (
+        banderas.get('escala_circulos')
+        if isinstance(banderas, dict) and 'escala_circulos' in banderas
+        else ('mitad' if mapa_ == 0 else 'normal')
+    )
+    es_resumen_matriz = (
+        (banderas.get('tipo_resumen_estadistico') == 'matriz_global')
+        if isinstance(banderas, dict) and 'tipo_resumen_estadistico' in banderas
+        else (mapa_ < 4 or bandera_dia == 0)
+    )
+
     pos_x=ubicacion_caja[0]#pos_x=55
     pos_y=ubicacion_caja[1]#pos_y=234
 
@@ -242,7 +411,7 @@ def caja_simbologia(lienzo,resumen,vector,ubicacion_caja,mapa_,bandera_dia,bande
     lienzo.setFont('Helvetica', 9)
     lienzo.drawString(pos_x+31,pos_y+48,"Magnitud(Md):")
     lienzo.drawString(pos_x+5,pos_y+38,"3.0 - 3.5 - 4.0 - 4.5 - 5.0")
-    if mapa_==2:#Reporte a la Facultad
+    if es_caja_compacta:#Reporte a la Facultad
         lienzo.rect(pos_x+240,pos_y,200,64)
         lienzo.rect(pos_x,pos_y,240,64)
         lienzo.drawString(pos_x+105,pos_y+27,"Sismos procesados")
@@ -253,15 +422,12 @@ def caja_simbologia(lienzo,resumen,vector,ubicacion_caja,mapa_,bandera_dia,bande
         lienzo.drawString(pos_x+105,pos_y+16,"Sismo con profundidad media, de 40 a 70 Km.")
         lienzo.drawString(pos_x+105,pos_y+5,"Sismo profundo, > 70 Km.")
     lienzo.setFont('Helvetica', 11)
-    if mapa_<4 or bandera_dia==0:  #Region Ecuador Facultad Fuentes o Reporte diario
-        if len(resumen)<3 and mapa_!=3:#Revisar esto, se genera vector en el resumen con Fuentes
-            promedio_sismos_localizados=round(resumen[1][1]/(len(resumen)-1),1)
-            promedio_sismos_no_localizados=round(resumen[1][2]/(len(resumen)-1),1)
-        else:
-            promedio_sismos_localizados=round(resumen[1][1]/(len(resumen)-2),1)
-            promedio_sismos_no_localizados=round(resumen[1][2]/(len(resumen)-2),1)
+    if es_resumen_matriz:  #Region Ecuador Facultad Fuentes o Reporte diario
+        divisor_matriz = max(1, (len(resumen) - 1) if (len(resumen) < 3 and mapa_ != 3) else (len(resumen) - 2))
+        promedio_sismos_localizados=round(resumen[1][1]/divisor_matriz,1)
+        promedio_sismos_no_localizados=round(resumen[1][2]/divisor_matriz,1)
         promedio_total=round(promedio_sismos_localizados+promedio_sismos_no_localizados,1)
-        if mapa_==2:
+        if es_caja_compacta:
             lienzo.drawString(pos_x+280,pos_y+50,"Promedio diario de registros")
             lienzo.drawString(pos_x+250,pos_y+28,"Sismos localizados:    "+str(promedio_sismos_localizados)+" sismos/dia")
             lienzo.drawString(pos_x+250,pos_y+17,"Eventos sin localizar:  "+str(promedio_sismos_no_localizados)+" eventos/dia")
@@ -275,16 +441,22 @@ def caja_simbologia(lienzo,resumen,vector,ubicacion_caja,mapa_,bandera_dia,bande
 
     else: #Reporte de periodo desde Austro en adelante.
         aux=sum(resumen)
-        promedio_sismos_localizados=round(aux/(len(resumen)-2),1)
-        lienzo.drawString(pos_x+340,pos_y+50,"Promedio diario de registros")
-        lienzo.drawString(pos_x+305,pos_y+28,"Sismos localizados:    "+str(promedio_sismos_localizados)+" sismos/dia")
-        lienzo.drawString(pos_x+305,pos_y+6,"Total:                         "+str(aux)+" sismos")
+        divisor_vec = max(1, len(resumen) - 2)
+        promedio_sismos_localizados=round(aux/divisor_vec,1)
+        if es_caja_compacta:
+            lienzo.drawString(pos_x+280,pos_y+50,"Promedio diario de registros")
+            lienzo.drawString(pos_x+250,pos_y+28,"Sismos localizados:    "+str(promedio_sismos_localizados)+" sismos/dia")
+            lienzo.drawString(pos_x+250,pos_y+6,"Total:                         "+str(aux)+" sismos")
+        else:
+            lienzo.drawString(pos_x+340,pos_y+50,"Promedio diario de registros")
+            lienzo.drawString(pos_x+305,pos_y+28,"Sismos localizados:    "+str(promedio_sismos_localizados)+" sismos/dia")
+            lienzo.drawString(pos_x+305,pos_y+6,"Total:                         "+str(aux)+" sismos")
     dibujo_leyenda_sismos = Drawing(300, 60)
     color=[colors.blue,colors.orange,colors.red]
     for i in range(0,5):
         for j in range(0,3):
-            if mapa_!=2:
-                if mapa_==0:
+            if not es_caja_compacta:
+                if escala_circulos == 'mitad':
                     if bandera_relleno:
                         dibujo_leyenda_sismos.add(Circle(i*21, j*12, (i+1)/2., strokeColor=color[j],strokeWidth = 0.2,fillColor=color[j],fillOpacity=0.7))#Dibuja los circulos a la mitad
                     else:
@@ -785,21 +957,41 @@ def imprimir_seniales(tamanio,canales,trcanal,evento,bandera_seniales,bandera_zo
 
 
 
-def estadistica_(lienzo,resumen,fecha_ini,mapa_,bandera_dia):
-        #Impresión del resumen diario de eventos procesados a travez de un chart de barras.
+def estadistica_(lienzo,resumen,fecha_ini,mapa_,bandera_dia,banderas=None):
+        #########################################################################################
+        # Impresión del resumen diario de eventos procesados a través de un gráfico de barras
+        # apiladas (VerticalBarChart) en la parte inferior de la portada de período.
+        # ---------------------------------------------------------------------------------------
+        # banderas: Diccionario maestro de banderas (PERFILES_MAPA_ZONA en rsa_pdf_catalogo.py):
+        #             - 'tipo_resumen_estadistico': 'matriz_global' (barras verdes Procesados + rojas FF)
+        #                                           o 'vector_filtrado' (solo barras verdes Procesados en la zona).
+        #             - 'mostrar_grafico_barras'  : True para dibujar el histograma; False para omitirlo
+        #                                           (ej. en Facultad y Reportes).
+        #########################################################################################
+        es_resumen_matriz = (
+            (banderas.get('tipo_resumen_estadistico') == 'matriz_global')
+            if isinstance(banderas, dict) and 'tipo_resumen_estadistico' in banderas
+            else (mapa_ < 4 or bandera_dia == 0)
+        )
+        mostrar_barras = (
+            banderas.get('mostrar_grafico_barras')
+            if isinstance(banderas, dict) and 'mostrar_grafico_barras' in banderas
+            else (mapa_ not in (2, 4))
+        )
+
         dibujo_chart = Drawing(500, 200)
         data = [[],[]]
         nombres=[]
         maximo=0
         fecha=fecha_ini
-        if mapa_<4 or bandera_dia==0: #Resumen como matriz
+        if es_resumen_matriz: #Resumen como matriz
             sismos_procesados=int(resumen[1][1])
-        else: #Reporte de periodo
-            sismos_procesados=sum(resumen)#Resumen cono vector con los dos primeros valores 0
+        else: #Reporte de periodo filtrado por zona
+            sismos_procesados=sum(resumen)#Resumen como vector con los dos primeros valores 0
         tope=int(len(resumen)/35)+1
         contador_datos=0
         for i in range(2,len(resumen)):
-            if mapa_<4:
+            if es_resumen_matriz:
                 sismos_procesados=int(resumen[i][0])
                 sismos_no_procesados=int(resumen[i][1])
             else:
@@ -837,17 +1029,17 @@ def estadistica_(lienzo,resumen,fecha_ini,mapa_,bandera_dia):
         bc.bars[0].strokeWidth=0.01
         bc.bars[1].fillColor = colors.darkred
         bc.bars[1].strokeWidth=0.01
-        if mapa_==2 or mapa_==4:
+        if not mostrar_barras:
             pass
         else:
             dibujo_chart.add(bc)
-            if mapa_<4:  #mapa_==0   Reporte general  Etuvo <3
+            if es_resumen_matriz:  #Reporte general con matriz (Procesados + No procesados FF)
                 dibujo_chart.add(String(185,135,'Estadística de Registros Sísmicos',fontSize=14))
                 dibujo_chart.add(Rect(450,125,6,6,fillColor=colors.darkred))
                 dibujo_chart.add(String(457,125,'No Procesados (FF)',fontSize=10))
                 dibujo_chart.add(Rect(450,115,6,6,fillColor=colors.darkgreen))
                 dibujo_chart.add(String(457,115,'Procesados',fontSize=10))
-            else:  #Reporte Filtrado de acuerdo al mapa
+            else:  #Reporte Filtrado de acuerdo al mapa de proyecto/institución
                  dibujo_chart.add(String(185,135,'Estadística de Registros Sísmicos Procesados',fontSize=14))
         dibujo_chart.drawOn(lienzo, 15,68)
         return lienzo

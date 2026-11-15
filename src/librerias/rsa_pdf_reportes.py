@@ -76,13 +76,32 @@ MODO_FACULTAD_RESUMEN         = 5   # M5 – Facultad/resumen (redes sociales), 
 MODO_INSTITUCIONAL_DETALLADO  = 6   # M6 – Institucional detallado (solo catálogo), sin extras ni responsables
 MODO_INSTITUCIONAL_RESUMEN    = 7   # M7 – Institucional, sin detalle
 
-def impresion_reporte_sismo(lienzo_archivo, evento_generar, canales, trCanal,bandera_periodo,directorio_trabajo,mapa_escogido):#Bandera 1, imprime el perorte en una hoja, 0 saca el lienzo para sumar un reporte grande.
-    # lienzo_archivo------- Nombre del lienzo para continuar graficando o el pdf del archivo pdf para empezar a graficar
-    # evento_generar------ Datos del evento en el catalogo, contiene la información de la RSA. otras redes o de eventos no procesados.
-    # canales------- Canales a graficar del reporte diario
-    # trCanal------- Datos mseed del evento
-    # bandera_periodo------- 1 es reporte de periodo , 0 es reporte diario.
-    # directorio_trabajo------- Directorio de trabajo.
+def impresion_reporte_sismo(lienzo_archivo, evento_generar, canales, trCanal,bandera_periodo,directorio_trabajo,mapa_escogido,banderas=None):#Bandera 1, imprime el perorte en una hoja, 0 saca el lienzo para sumar un reporte grande.
+    #########################################################################################
+    # Método que genera la portada/ficha individual de localización de un sismo.
+    # ---------------------------------------------------------------------------------------
+    # lienzo_archivo    : Lienzo ReportLab activo (bandera_periodo=1) o ruta PDF destino (0).
+    # evento_generar    : Lista de filas de catálogo del mismo evento (RSA, IGEPN, USGS o No procesado).
+    # canales           : Vector binario (0/1) de estaciones a graficar en la miniatura.
+    # trCanal           : Lista de Streams MiniSEED leídos para las 101 estaciones.
+    # bandera_periodo   : 1 = continúa sobre el lienzo de un reporte mayor; 0 = guarda PDF individual.
+    # directorio_trabajo: Ruta raíz de trabajo (..\DIA\).
+    # mapa_escogido     : Índice del mapa/modo de detalle tradicional (1 = con extras técnicos).
+    # banderas          : Diccionario maestro de banderas generado por derivar_banderas_desde_modo()
+    #                     en rsa_pdf_catalogo.py. Controla explícitamente:
+    #                       - 'mostrar_cobertura_red': Polígonos 50/150 km y estaciones (M1, M2, M3).
+    #                       - 'mostrar_intentos_proc': Historial de intentos previos _proc.csv (M1, M2, M3).
+    #                     Si banderas es None (ej. llamada directa desde reporte individual),
+    #                     usa el fallback histórico (mapa_escogido == 1).
+    #########################################################################################
+    mostrar_cobertura = (
+        banderas.get('mostrar_cobertura_red', (mapa_escogido == 1))
+        if isinstance(banderas, dict) else (mapa_escogido == 1)
+    )
+    mostrar_intentos = (
+        banderas.get('mostrar_intentos_proc', (mapa_escogido == 1))
+        if isinstance(banderas, dict) else (mapa_escogido == 1)
+    )
 
     ancho=450#Hay que sacar la proporción adecuada para la ubicación de los eventos. original 350, 3.5 grados
     alto=450#Hay que sacar la proporción adecuada para la ubicación de los eventos. original 350, 3.5 grados
@@ -98,26 +117,34 @@ def impresion_reporte_sismo(lienzo_archivo, evento_generar, canales, trCanal,ban
     numero_redes=len(evento_generar)
     if evento_generar[0]==[]:
         reporte=1
-        if evento_generar[1][IDX_FUENTE]=="IGEPN" :
+        fuente_1 = str(evento_generar[1][IDX_FUENTE]).strip()
+        if fuente_1=="IGEPN":
             mensaje_1="Datos tomados del IGEPN: "
-            mensaje_2=""
-            if numero_redes==3:
-                mensaje_2="Reporte USGS: Mag: "+str(evento_generar[2][IDX_MAGNITUD])+evento_generar[2][IDX_UNIDAD_MAG]+"  Prof: "+str(evento_generar[2][IDX_PROFUNDIDAD])+"  Lat: "+str(evento_generar[2][IDX_LATITUD])+"  Long: "+str(evento_generar[2][IDX_LONGITUD])
+        elif fuente_1=="USGS":
+            mensaje_1="Datos tomados de la USGS: "
         else:
-            if numero_redes==3:
-                mensaje_1="Datos tomados de la USGS: "
-                reporte=2
+            mensaje_1=f"Datos tomados de {fuente_1}: "
+        mensaje_2=""
+        if numero_redes>=3 and evento_generar[2]:
+            fuente_2 = str(evento_generar[2][IDX_FUENTE]).strip()
+            mensaje_2=f"Reporte {fuente_2}: Mag: "+str(evento_generar[2][IDX_MAGNITUD])+evento_generar[2][IDX_UNIDAD_MAG]+"  Prof: "+str(evento_generar[2][IDX_PROFUNDIDAD])+"  Lat: "+str(evento_generar[2][IDX_LATITUD])+"  Long: "+str(evento_generar[2][IDX_LONGITUD])
     else: 
-        if numero_redes>1:
-            mensaje_1="Reporte IGEPN: Mag: "+str(evento_generar[1][IDX_MAGNITUD])+evento_generar[1][IDX_UNIDAD_MAG]+"  Prof: "+str(evento_generar[1][IDX_PROFUNDIDAD])+"  Lat: "+str(evento_generar[1][IDX_LATITUD])+"  Long: "+str(evento_generar[1][IDX_LONGITUD])
-        if numero_redes>2:
-            mensaje_2="Reporte USGS: Mag: "+str(evento_generar[2][IDX_MAGNITUD])+evento_generar[2][IDX_UNIDAD_MAG]+"  Prof: "+str(evento_generar[2][IDX_PROFUNDIDAD])+"  Lat: "+str(evento_generar[2][IDX_LATITUD])+"  Long: "+str(evento_generar[2][IDX_LONGITUD])
+        if numero_redes>1 and evento_generar[1]:
+            fuente_1 = str(evento_generar[1][IDX_FUENTE]).strip()
+            mensaje_1=f"Reporte {fuente_1}: Mag: "+str(evento_generar[1][IDX_MAGNITUD])+evento_generar[1][IDX_UNIDAD_MAG]+"  Prof: "+str(evento_generar[1][IDX_PROFUNDIDAD])+"  Lat: "+str(evento_generar[1][IDX_LATITUD])+"  Long: "+str(evento_generar[1][IDX_LONGITUD])
+        if numero_redes>2 and evento_generar[2]:
+            fuente_2 = str(evento_generar[2][IDX_FUENTE]).strip()
+            mensaje_2=f"Reporte {fuente_2}: Mag: "+str(evento_generar[2][IDX_MAGNITUD])+evento_generar[2][IDX_UNIDAD_MAG]+"  Prof: "+str(evento_generar[2][IDX_PROFUNDIDAD])+"  Lat: "+str(evento_generar[2][IDX_LATITUD])+"  Long: "+str(evento_generar[2][IDX_LONGITUD])
     evento=evento_generar[reporte][IDX_EVENTO]
     directorios=obtener_directorios(evento)
     archivo_procesamiento=os.path.join(directorio_trabajo, directorios['archivo_procesamiento'])
     existe_proc = os.path.exists(archivo_procesamiento)  # solo para el bloque de "intentos"
     hay_rsa = any(f and f[IDX_FUENTE]=='RSA' for f in evento_generar)
-    forzar_sin_convergencia = (not hay_rsa) and existe_proc
+    hay_otra_red = any(
+        f and str(f[IDX_FUENTE]).strip() not in ('', 'RSA', 'No procesado')
+        for f in evento_generar
+    )
+    forzar_sin_convergencia = (not hay_rsa) and (not hay_otra_red) and existe_proc
     if forzar_sin_convergencia:
         idx_np = next((i for i,f in enumerate(evento_generar) if f and f[IDX_FUENTE]=='No procesado'), None)
         if idx_np is not None:
@@ -194,7 +221,7 @@ def impresion_reporte_sismo(lienzo_archivo, evento_generar, canales, trCanal,ban
     lienzo=formato(marca_agua,tamanio_hoja,titulo,subtitulo,0,lienzo)
 
     lienzo=mapa(lienzo,mapa_despliegue, tamanio, coordenadas,salto,1)
-    if mapa_escogido==1:#Solo dibuja la cobertura para manejo interno.
+    if mostrar_cobertura:#Solo dibuja la cobertura para manejo interno / extras_tecnicos.
         lienzo=grafico_cobertura(lienzo,evento,coordenadas,tamanio,directorio_trabajo)
 
     lienzo.setFillColor('Black')
@@ -246,7 +273,7 @@ def impresion_reporte_sismo(lienzo_archivo, evento_generar, canales, trCanal,ban
 
 #Dibujo de los intentos en procesamiento
 
-    if mapa_escogido==1 and existe_proc:
+    if mostrar_intentos and existe_proc:
         intentos=lectura_archivo(archivo_procesamiento)
         bandera_color=0
         for intento in intentos:
@@ -414,11 +441,42 @@ def cabecera_(catalogo_escogido):
 
 
 
-def hoja_seniales_(directorio_trabajo,lienzo,evento_catalogo,evento_generar,evento,pagina,trCanal,raiz,mapa_,detalle,bandera_primera_hoja):
-#evento_catalogo:  Evento completo tomado del catalogo
-#estaciones_informe: Ver la posiblidad de cargar aqui con mapa configuracion
-# evento:    informacion del evento enele formato obtenido de AAMMDD_hhmmss.csv
-#pagina:   Informacion en 1 o = de que estestacion se tiene que imprimir
+def hoja_seniales_(directorio_trabajo,lienzo,evento_catalogo,evento_generar,evento,pagina,trCanal,raiz,mapa_,detalle,bandera_primera_hoja,banderas=None):
+    #########################################################################################
+    # Método que renderiza una hoja de señales sismológicas (hasta 5 estaciones por página).
+    # Si es la primera página del evento (bandera_primera_hoja == 1) y existe localización,
+    # imprime primero la ficha cartográfica invocando impresion_reporte_sismo().
+    # ---------------------------------------------------------------------------------------
+    # directorio_trabajo   : Ruta raíz de trabajo (..\DIA\).
+    # lienzo               : Lienzo ReportLab activo donde se dibuja la página.
+    # evento_catalogo      : Fila principal del evento tomada del catálogo sísmico.
+    # evento_generar       : Lista de filas asociadas al mismo .sis (RSA + otras redes).
+    # evento               : Fila cruda del archivo diario AAMMDD_hhmmss.csv (tokens de estaciones).
+    # pagina               : Vector binario (0/1) con las (máximo 5) estaciones de esta página.
+    # trCanal              : Lista de Streams MiniSEED leídos para las 101 estaciones.
+    # raiz                 : Nodo raíz XML con las fases P, S, Coda, azimut, distancia y RMS.
+    # mapa_                : Indicador numérico tradicional (1 = con extras técnicos).
+    # detalle              : Parámetro de detalle auxiliar.
+    # bandera_primera_hoja : 1 en la primera página del sismo (dispara impresion_reporte_sismo), 0 en el resto.
+    # banderas             : Diccionario maestro de banderas generado por derivar_banderas_desde_modo()
+    #                        en rsa_pdf_catalogo.py. Gobierna de forma trazable:
+    #                          - 'mostrar_zoom_seniales'       : 2 columnas derechas con zoom de onda P (cruda y filtrada).
+    #                          - 'mostrar_cabecera_interna_rms': Línea superior con Responsable del turno y RMS.
+    #                          - 'mostrar_lineas_fases'        : Líneas verticales rojas de arribo P, S y Coda.
+    #                        Si banderas es None, mantiene retrocompatibilidad con (mapa_ == 1).
+    #########################################################################################
+    mostrar_zoom = (
+        banderas.get('mostrar_zoom_seniales', (mapa_ == 1))
+        if isinstance(banderas, dict) else (mapa_ == 1)
+    )
+    mostrar_cabecera_rms = (
+        banderas.get('mostrar_cabecera_interna_rms', (mapa_ == 1))
+        if isinstance(banderas, dict) else (mapa_ == 1)
+    )
+    mostrar_fases = (
+        banderas.get('mostrar_lineas_fases', (mapa_ == 1))
+        if isinstance(banderas, dict) else (mapa_ == 1)
+    )
     codigo_evento=('','Nombre','Longitud','Latitd','altura','Ganancia','Filtro','Dist. epicentral: ','    Azimut:','  ain: ','    p-sec: ',' tpcal: ','  p-res: ','  s-sec: ',  's-res: ','  Disparo: ','  Marc.s: ','  t_coda: ')
     unidades_evento=('','','°','°','mts ','dB','Hz.','Km ',' °',' ain',' s ',' tpcal',' s ',' s ',  ' s ',' ','  ',' s')
     datos_estaciones=parametros_estaciones()
@@ -477,7 +535,7 @@ def hoja_seniales_(directorio_trabajo,lienzo,evento_catalogo,evento_generar,even
 
         # Imprime portada si: hay datos reales  o  hubo intentos (mostrar "¡Sin convergencia!")
         if hay_indice_real or hay_intentos:
-            lienzo = impresion_reporte_sismo(lienzo, evento_generar, pagina, trCanal, 1, directorio_trabajo, mapa_)
+            lienzo = impresion_reporte_sismo(lienzo, evento_generar, pagina, trCanal, 1, directorio_trabajo, mapa_, banderas=banderas)
             lienzo.showPage()
 
 
@@ -556,10 +614,10 @@ def hoja_seniales_(directorio_trabajo,lienzo,evento_catalogo,evento_generar,even
     drawing.drawOn(lienzo, 50, 50)
 
 ######################################################################
-#sOLO PARA MANEJO INTERNO DE LA RSA, CON mapa_=1
+#sOLO PARA MANEJO INTERNO DE LA RSA (controlado por mostrar_zoom / mostrar_cabecera_rms)
 ######################################################################
 
-    if mapa_==1:
+    if mostrar_zoom:
 ######################################################################
 #Impresión de las señales zoom
 ######################################################################
@@ -570,6 +628,7 @@ def hoja_seniales_(directorio_trabajo,lienzo,evento_catalogo,evento_generar,even
         drawing=imprimir_seniales(tamanio_,pagina,trCanal_copia_filtrada,evento,0,1)
         drawing.drawOn(lienzo, 460, 50)
 
+    if mostrar_cabecera_rms:
 ######################################################################
 #Texto de cabecera
 ######################################################################
@@ -625,7 +684,7 @@ def hoja_seniales_(directorio_trabajo,lienzo,evento_catalogo,evento_generar,even
 #####################################################
 ##### Dibujo de las lineas de fases
 #####################################################
-                if mapa_==1:
+                if mostrar_fases:
                     lienzo.setStrokeColor(colors.red)
                     y_start = y_+130
                     y_end = y_+50

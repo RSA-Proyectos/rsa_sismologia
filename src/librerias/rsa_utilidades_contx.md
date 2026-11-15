@@ -47,6 +47,14 @@ graph TD
   * Busca la cabecera binaria en candidatos: `directorios['Directorio_trabajo']/cabecera_sismo`, `datos/cabecera_sismo`, `C:/DIA/cabecera_sismo`.
   * Remuestrea canales analógicos a 64 Hz con enteros de 32 bits (`int32`).
 
+* **Función `obtener_datos_reporte(fecha_ini, fecha_fin, directorio_trabajo, mapa_="Ecuador", tipo_forzado=None)`**:
+  * Resuelve el título descriptivo (`periodo_reporte`), la carpeta base unificada (`directorio_reporte`) y el prefijo de archivo (`archivo_reporte`) para reportes acumulados:
+    * **Tipo `0` (Anual)**: `DIA/<AAAA>/reportes/<Región>/<AAAA>_*`
+    * **Tipo `1` (Mensual)**: `DIA/<AAAA>/<AAAA_MM>/reporte/<Región>/<Mes> del <AAAA>_*`
+    * **Tipo `2` (Semanal ISO)**: `DIA/<AAAA_fin>/reportes/semanal/semana<WW>/<Región>/Semana <WW>_*`
+    * **Tipo `3` (Período / Rango de Fechas)**: `DIA/<AAAA_fin>/reportes/periodos/<AAAA_MM_DD_ini>_<AAAA_MM_DD_fin>/<Región>/<dd_mm_aaaa a dd_mm_aaaa>_*` (unificado para cualquier rango de fechas, sea dentro del mismo mes, entre meses o multianual).
+  * Admite `tipo_forzado` (`0..3`) para respetar explícitamente el RadioButton seleccionado por el usuario en `reporte_acumulado.py`.
+
 ---
 
 ## 3. Componentes y Métodos Clave
@@ -56,8 +64,11 @@ graph TD
 | `referencia_directorio_completa` | `(archivo) -> str` | Resuelve la ruta canónica `DIA/AAAAMMDD000000` extrayendo la fecha por regex o desglose jerárquico. |
 | `extraccion` | `(t_ini, t_fin, canales, tipo_evento, directorios, parametros, ...)` | Recorta trazas sísmicas, genera MiniSEED de eventos y emite `.sis` binario para sismos. |
 | `binario_a_mseed` | `(ruta_binario, ruta_salida, ...)` | Convierte registros binarios directos a archivos MiniSEED con metadatos de traza. |
-| `ubicacion` | `(latitud, longitud) -> list` | Normaliza coordenadas geográficas en grados decimales. |
-| `generar_directorios_unidades_basicas` | `(directorio_base)` | Crea las carpetas del día (`mseed/registros`, `mseed/eventos`, `sis`, `reporte`). |
+| `ubicacion` | `(latitud, longitud) -> str` | Calcula la distancia y referencia geográfica respecto al catálogo `datos/poblaciones.csv`. |
+| `obtener_datos_reporte` | `(fecha_ini, fecha_fin, directorio_trabajo, mapa_="Ecuador", tipo_forzado=None)` | Unifica las rutas de guardado para reportes anuales (`0`), mensuales (`1`), semanales (`2`) y por rango de fechas (`3`). Reconoce automáticamente unidades completas cuando `tipo_forzado=None`. |
+| `generar_directorios_unidades_basicas` | `(fecha_ini, fecha_fin, directorio_trabajo, verificar_existencia=False, detallar=False, nivel_maximo="ANIO")` | Descompone jerárquicamente cualquier rango `[fecha_ini, fecha_fin]` en unidades básicas (`días -> semanas -> meses -> años -> meses -> semanas -> días`), verificando opcionalmente la existencia de `<prefijo>_cat.csv` en disco con *fallback* automático al nivel inferior. |
+| `consolidar_archivos_periodo_ecuador` | `(fecha_ini, fecha_fin, directorio_trabajo, tipo_forzado=None, nivel_maximo="DIA")` | Reconstruye y escribe en `Ecuador` todos los archivos consolidados de un período (`_cat.csv`, `_rep.csv`, `_res.csv`, `_rep_total.csv`, `.xml` y CSVs SIG) sin generar PDFs. |
+| `actualizar_periodos_emitidos_desde_fecha` | `(fecha_referencia, directorio_trabajo)` | Propaga automáticamente en cascada (`Semana ISO -> Mes -> Año`) cualquier modificación de un día hacia los períodos cuyos archivos `_cat.csv` ya hayan sido emitidos en `Ecuador`. |
 
 ---
 

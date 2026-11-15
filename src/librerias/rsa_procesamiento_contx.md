@@ -53,7 +53,7 @@ graph TD
 |---|---|---|
 | `ordenar_y_eliminar_duplicados` | `(catalogo, indice, bandera=True) -> list` | Ordena cronológicamente, descarta entradas redundantes y renumera la columna 0 de forma segura para listas y tuplas. |
 | `extraer_dia` | `(eventos, directorios, parametros, ...)` | Ejecuta la extracción masiva de trazas sismológicas para cada evento confirmado. |
-| `guardar_informacion_diaria` | `(...)` | Persiste metadatos de jornada y estado de procesamiento. |
+| `guardar_informacion_diaria` | `(...)` | Persiste metadatos de jornada y estado de procesamiento verificando que `catalogo_grabar` no sea vacío antes de anexarlo a `_cat.csv`, acotando el índice de estaciones `min(max(0, n_estaciones - 3), 5)` y preservando íntegramente todos los eventos de otras redes (`Id[-2:] != '00'`) tanto intermedios como correspondientes al último sismo del día (`.append()` cuando no existe un evento posterior). |
 | `espectro_respuesta` | `(aceleracion, dt, periodos, amortiguamiento) -> np.ndarray` | Calcula el espectro de respuesta elástico de aceleración ($S_a$) para señales sísmicas. |
 
 ---

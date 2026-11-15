@@ -55,8 +55,12 @@ graph TD
 |---|---|---|
 | `grafico_evento_int` | `(visor, stLeido, t_inicio, t_final, estaciones_eventos, hab_grafico, bandera_marcas, pagina)` | Dibuja en Matplotlib las trazas sismológicas multicanal normalizadas con etiquetas y tiempos. |
 | `filtro_evento` | `(stream, filtro_str)` | Aplica filtro Butterworth pasa-banda (desempaquetando `OOFFSS`) usando ObsPy. |
-| `cargar_evento` | `(parametro, eventos_reporte, catalogo, eventos, ...)` | Carga y recorta trazas MiniSEED correspondientes a un evento específico del catálogo. |
-| `cargar_dia` | `(directorios, parametros)` | Carga masiva de los streams de registro continuo de 24 horas de todas las estaciones activas. |
+| `cargar_evento` | `(parametro, eventos_reporte, catalogo, eventos, ...)` | Carga y recorta trazas MiniSEED correspondientes a un evento específico del catálogo, soportando nombres de 12 y 14 dígitos e índices numéricos o de texto en `eventos_reporte`. |
+| `cargar_dia` | `(directorios)` | Carga consolidada de los eventos, catálogo (`_cat.csv`), resumen (`_rep.csv`, `_res.csv`, `_resp.csv`) y XML del día, preservando e insertando los registros de otras redes (`Id[-2:] != '00'`) inmediatamente debajo de su evento `.sis` asociado. |
+| `insertar_evento_otras_redes` | `(catalogo, indice_catalogo, eventos_reporte, ...)` | Parsea boletines de `IGEPN`, `USGS` u `Otras redes`, asigna `latitud` en la columna `7` y `longitud` en la columna `8`, calcula epicentro con `ubicacion(latitud, longitud)` y actualiza `catalogo` y `eventos_reporte` sin duplicados. |
+| `consultar_sismos_igepn_web` / `consultar_sismos_usgs_api` | `(...)` | Consultan en línea la tabla HTML de Últimos Sismos del IGEPN (`portal/sismos/index2.html`) y el servicio FDSN GeoJSON de la USGS (`earthquake.usgs.gov/fdsnws/event/1/query`) devolviendo registros normalizados. |
+| `buscar_evento_otra_red_en_linea` | `(nombre_sis, catalogo, red_nombre, tolerancia_seg=60)` | Busca en línea un evento particular de la RSA (priorizando la hora origen en `catalogo` o la marca del `.sis` para eventos `FF`/`FC`) dentro de `±60 s` y retorna el texto preformateado y el tipo de magnitud. |
+| `sincronizar_otras_redes_dia` | `(directorios, catalogo, eventos_reporte, eventos, tolerancia_seg=60)` | Cruza de forma automática y transparente todos los eventos `SISMO`, `FF` y `FC` del día contra IGEPN y USGS (`Δt ≤ 60 s`), integrando las coincidencias en `catalogo` y `eventos_reporte` sin intervención del usuario. |
 | `imprimir_plt` | `(...)` | Genera y guarda representaciones gráficas vectoriales y rasterizadas para informes PDF. |
 | `guardar_seniales_csv`| `(...)` | Exporta las series temporales de un evento sismológico a archivos CSV. |
 | `recolectar_evt` / `extraer_kinemetrics_evt` | `(...)` | Manejo y extracción de datos en formato Kinemetrics EVT hacia MiniSEED. |
@@ -67,10 +71,12 @@ graph TD
 
 1. **Normalización y Trazado Robusto**:
    * `grafico_evento_int` ajusta los offsets verticales de cada canal dinámicamente según la amplitud máxima local, evitando traslapes destructivos entre trazas continuas.
+   * Los títulos por estación (`fontsize=8, pad=2`), etiquetas de marcas temporales (`labelsize=7, pad=1`) y márgenes (`subplots_adjust`) están calibrados para mantener legibilidad en pantallas pequeñas sin solapamiento entre los 6 subgráficos apilados.
 2. **Filtrado Eficiente de Señales**:
    * Previo al filtrado pasa-banda, se ejecuta `detrend("demean")` y `detrend("linear")` para estabilizar la línea base de los sismogramas y mitigar efectos de borde en la convolución.
-3. **Mapeo Seguro de Tiempos UTC**:
+3. **Mapeo Seguro de Tiempos UTC y Carga Silenciosa (`cargar_dia`)**:
    * Uso sistemático de `obspy.UTCDateTime` para operaciones aritméticas sobre fechas y marcas sismológicas.
+   * `cargar_dia` evalúa los eventos `SISMO` sin desplegar ventanas emergentes (`QMessageBox`) bloqueantes por cada evento pendiente (`No procesado`), delegando la indicación de estado al sistema de colores del módulo de procesamiento.
 
 ---
 
