@@ -810,6 +810,7 @@ def extraer_dia(archivo, responsable, bandera_todo):
     }
     # Etiquetas de salida para datos_tiempo (coinciden con tus columnas)
     etiquetas_tramo = [12, 18, 24]  # Semántico: 12H, 18H, 24H (tramo 18–23)
+    responsable_por_tramo = ["", "", ""]
 
     # Recorremos eventos tal como vienen (sin encabezados y con formato estable AAAAMMDD_hhmmss)
     for fila in lista_eventos:
@@ -823,6 +824,9 @@ def extraer_dia(archivo, responsable, bandera_todo):
             idx = 1
         else:
             idx = 2
+
+        if len(fila) > 6 and str(fila[6]).strip() not in ("", "RSA") and not responsable_por_tramo[idx]:
+            responsable_por_tramo[idx] = str(fila[6]).strip()
 
         # Tipo exacto (según tu pipeline)
         tipo = fila[2]
@@ -844,7 +848,7 @@ def extraer_dia(archivo, responsable, bandera_todo):
             contadores["ruido"][idx] += 1
 
     # ----------------------------------------------------------------------
-    # 3) Actualización de datos_tiempo (sin pasos intermedios innecesarios)
+    # 3) Actualización de datos_tiempo (respetando responsables previos por turno)
     # ----------------------------------------------------------------------
     for i in (0, 1, 2):
         total = (
@@ -853,9 +857,17 @@ def extraer_dia(archivo, responsable, bandera_todo):
             contadores["local"][i] + contadores["ruido"][i]
         )
 
-        # Si hay eventos en el tramo y la fila está vacía, completar responsable y etiqueta de tramo
-        if total != 0 and datos_tiempo[i][2] == "0":
-            datos_tiempo[i][0] = responsable
+        # Si hay eventos en el tramo y la fila está vacía o sin responsable individual,
+        # asignar el responsable (preservando el propietario si ya existía uno distinto de RSA)
+        if total != 0:
+            resp_actual_fila = str(datos_tiempo[i][0]).strip() if datos_tiempo[i] else ""
+            if datos_tiempo[i][2] in ("0", "") or resp_actual_fila in ("", "RSA"):
+                if responsable and responsable != "RSA":
+                    datos_tiempo[i][0] = responsable
+                elif responsable_por_tramo[i]:
+                    datos_tiempo[i][0] = responsable_por_tramo[i]
+                elif not resp_actual_fila:
+                    datos_tiempo[i][0] = responsable or "RSA"
             datos_tiempo[i][1] = f"{etiquetas_tramo[i]}H"
 
         # Si la fila ya está “abierta” (o la acabamos de abrir), escribir conteos

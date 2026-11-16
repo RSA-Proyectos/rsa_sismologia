@@ -44,7 +44,18 @@ from subprogramas.reporte_acumulado import Reporte_periodo
 from subprogramas.reporte_enjambre import Reporte_enjambre
 from subprogramas.inicio import Inicio_proceso
 from subprogramas.otras_redes import Otras_redes
+from subprogramas.configuracion_sistema import (
+    Configurar_estaciones,
+    Configurar_analogicas,
+    Configurar_digitales,
+    Configurar_responsables,
+    Configurar_mapas,
+    Configurar_estructura_dia,
+    Respaldar_programa,
+    Restaurar_programa,
+)
 from rsa_procesamiento import extraer_dia
+from rsa_utilidades import cargar_config_local_pc, verificar_permiso_respaldo_pc
 from ayuda_contextual import mostrar_dialogo_ayuda_contextual
 
 
@@ -76,9 +87,11 @@ class VentanaPrincipal(QMainWindow):
         if os.path.exists(ruta_icono):
             self.setWindowIcon(QIcon(ruta_icono))
 
-        self.directorio_trabajo = 'G:/Mi unidad/DIA/'
-        self.responsable = 'RSA'
-        self.periodo = ''
+        # Cargar precarga / memoria local del PC (config_local_pc.json)
+        self.config_pc = cargar_config_local_pc()
+        self.directorio_trabajo = self.config_pc.get('directorio_trabajo') or 'G:/Mi unidad/DIA/'
+        self.responsable = self.config_pc.get('responsable_habitual') or 'RSA'
+        self.periodo = self.config_pc.get('ultimo_periodo_procesado') or ''
         self.archivo = os.path.join(self.directorio_trabajo, datetime.today().strftime("%Y%m%d") + "000000")
 
         # Estado de inicialización y pila LIFO de estados de menú
@@ -111,6 +124,7 @@ class VentanaPrincipal(QMainWindow):
             'titulo_ventana': self.windowTitle(),
             'texto_etiqueta': self.etiqueta_titulo.text(),
             'menu_configuracion': self.menu_configuracion.isEnabled(),
+            'menu_ingreso_datos': self.menu_ingreso_datos.isEnabled(),
             'menu_informes': self.menu_informes.isEnabled(),
             'menu_procesamiento': self.menu_procesamiento.isEnabled(),
             'menu_otros_informes': self.menu_otros_informes.isEnabled(),
@@ -132,6 +146,7 @@ class VentanaPrincipal(QMainWindow):
             self.setWindowTitle(snapshot['titulo_ventana'])
             self.etiqueta_titulo.setText(snapshot['texto_etiqueta'])
             self.menu_configuracion.setEnabled(snapshot['menu_configuracion'])
+            self.menu_ingreso_datos.setEnabled(snapshot.get('menu_ingreso_datos', False))
             self.menu_informes.setEnabled(snapshot['menu_informes'])
             self.menu_procesamiento.setEnabled(snapshot['menu_procesamiento'])
             self.menu_otros_informes.setEnabled(snapshot['menu_otros_informes'])
@@ -217,9 +232,9 @@ class VentanaPrincipal(QMainWindow):
         self.habilitar_menus()
         self.actualizar_titulo('PROCESAMIENTO INTEGRADO - RSA', True)
 
-    def cargar_widget_menu(self, widget, titulo, mostrar_detalles=True):
+    def cargar_widget_menu(self, widget, titulo, mostrar_detalles=True, requiere_inicializacion=True):
         """Carga e impregna exclusivamente la interfaz propia del subprograma en la ventana principal"""
-        if not self.datos_inicializados:
+        if requiere_inicializacion and not self.datos_inicializados:
             QMessageBox.warning(self, 'Advertencia', 'Debe completar la inicialización del día primero.')
             return False
 
@@ -325,40 +340,73 @@ class VentanaPrincipal(QMainWindow):
         self.menu_inicio.addAction(self.accion_salir)
 
         ##########################################################################################
-        #  Menú dos: Configuración
+        #  Menú dos: Configuración (Habilitado en Estado A como Inicio; 6 opciones de sistema)
         ##########################################################################################
         self.menu_configuracion = self.barra_menu.addMenu('Configuración')
 
-        self.accion_estaciones = QAction('Estaciones', self)
+        self.accion_estaciones = QAction('Estaciones (estaciones.csv)', self)
         self.accion_estaciones.triggered.connect(self.estaciones)
         self.menu_configuracion.addAction(self.accion_estaciones)
 
-        self.accion_enlaces = QAction('Enlaces digitales', self)
+        self.accion_analogicas = QAction('Estaciones analógicas (analogicas.csv)', self)
+        self.accion_analogicas.triggered.connect(self.estaciones_analogicas)
+        self.menu_configuracion.addAction(self.accion_analogicas)
+
+        self.accion_enlaces = QAction('Enlaces digitales (digitales.csv)', self)
         self.accion_enlaces.triggered.connect(self.enlaces_digitales)
         self.menu_configuracion.addAction(self.accion_enlaces)
 
+        self.accion_responsables = QAction('Responsables (responsables.csv)', self)
+        self.accion_responsables.triggered.connect(self.configurar_responsables)
+        self.menu_configuracion.addAction(self.accion_responsables)
+
+        self.accion_mapas_gis = QAction('Mapas y regiones GIS (mapas.csv)', self)
+        self.accion_mapas_gis.triggered.connect(self.configurar_mapas_gis)
+        self.menu_configuracion.addAction(self.accion_mapas_gis)
+
         self.menu_configuracion.addSeparator()
+
+        self.accion_estructura_dia = QAction('Estructura y directorio de trabajo (..\\DIA\\)', self)
+        self.accion_estructura_dia.triggered.connect(self.configurar_estructura_dia)
+        self.menu_configuracion.addAction(self.accion_estructura_dia)
+
+        self.menu_configuracion.addSeparator()
+
+        self.accion_respaldo_programa = QAction('Respaldo del programa (ZIP)', self)
+        self.accion_respaldo_programa.triggered.connect(self.respaldar_programa)
+        es_pc_admin, _, _ = verificar_permiso_respaldo_pc()
+        self.accion_respaldo_programa.setEnabled(es_pc_admin)
+        self.menu_configuracion.addAction(self.accion_respaldo_programa)
+
+        self.accion_restaurar_programa = QAction('Actualizar / Recuperar desde respaldo (ZIP)', self)
+        self.accion_restaurar_programa.triggered.connect(self.restaurar_programa)
+        self.menu_configuracion.addAction(self.accion_restaurar_programa)
+
+        ##########################################################################################
+        #  Menú tres: Ingreso de Datos (Habilitado en modo Período: estaciones fuera de línea y otras redes)
+        ##########################################################################################
+        self.menu_ingreso_datos = self.barra_menu.addMenu('Ingreso de Datos')
 
         self.accion_datos_estacion_rg = QAction('Ingresar datos de estación en registro continuo', self)
         self.accion_datos_estacion_rg.triggered.connect(self.ingresar_datos_estacion_rg)
-        self.menu_configuracion.addAction(self.accion_datos_estacion_rg)
+        self.menu_ingreso_datos.addAction(self.accion_datos_estacion_rg)
 
         self.accion_datos_estacion_ev = QAction('Ingresar eventos de estaciones acelerográficas', self)
         self.accion_datos_estacion_ev.triggered.connect(self.ingresar_datos_estacion_ev)
-        self.menu_configuracion.addAction(self.accion_datos_estacion_ev)
+        self.menu_ingreso_datos.addAction(self.accion_datos_estacion_ev)
 
-        self.menu_configuracion.addSeparator()
+        self.menu_ingreso_datos.addSeparator()
 
         self.accion_igepn = QAction('Cargar datos de IGEPN', self)
         self.accion_igepn.triggered.connect(self.ingresar_IGEPN)
-        self.menu_configuracion.addAction(self.accion_igepn)
+        self.menu_ingreso_datos.addAction(self.accion_igepn)
 
         self.accion_usgs = QAction('Cargar datos de USGS', self)
         self.accion_usgs.triggered.connect(self.ingresar_USGS)
-        self.menu_configuracion.addAction(self.accion_usgs)
+        self.menu_ingreso_datos.addAction(self.accion_usgs)
 
         ##########################################################################################
-        #  Menú tres: Informes
+        #  Menú cuatro: Informes (Habilitado en modo Período)
         ##########################################################################################
         self.menu_informes = self.barra_menu.addMenu('Informes')
 
@@ -369,10 +417,6 @@ class VentanaPrincipal(QMainWindow):
         self.accion_reporte_enjambre = QAction('Reporte enjambre', self)
         self.accion_reporte_enjambre.triggered.connect(self.reporte_enjambre)
         self.menu_informes.addAction(self.accion_reporte_enjambre)
-
-        self.accion_shapes = QAction('Generar Shapes', self)
-        self.accion_shapes.triggered.connect(self.creacion_shapes)
-        self.menu_informes.addAction(self.accion_shapes)
 
         ##########################################################################################
         #  Menú cuatro: Procesamiento
@@ -480,14 +524,92 @@ class VentanaPrincipal(QMainWindow):
         self.cargar_widget_inicializacion(self.inicio_proceso)
 
     ##########################################################################################
-    #  Menú dos: Configuración
+    #  Menú dos: Configuración (6 módulos en Estado A)
     ##########################################################################################
 
     def estaciones(self):
-        QMessageBox.information(self, 'Configuración', 'Configuración de estaciones sísmicas.')
+        """Configuración de datos/estaciones.csv (101 registros constantes)"""
+        widget_cfg = Configurar_estaciones(self)
+        self.cargar_widget_menu(
+            widget_cfg,
+            'PROCESAMIENTO INTEGRADO - CONFIGURACIÓN DE ESTACIONES SÍSMICAS',
+            False,
+            requiere_inicializacion=False,
+        )
+
+    def estaciones_analogicas(self):
+        """Configuración de datos/analogicas.csv (16 canales constantes desde estaciones.csv)"""
+        widget_cfg = Configurar_analogicas(self)
+        self.cargar_widget_menu(
+            widget_cfg,
+            'PROCESAMIENTO INTEGRADO - CONFIGURACIÓN DE ESTACIONES ANALÓGICAS',
+            False,
+            requiere_inicializacion=False,
+        )
 
     def enlaces_digitales(self):
-        QMessageBox.information(self, 'Configuración', 'Configuración de enlaces digitales de telemetría.')
+        """Configuración de datos/digitales.csv (extensible)"""
+        widget_cfg = Configurar_digitales(self)
+        self.cargar_widget_menu(
+            widget_cfg,
+            'PROCESAMIENTO INTEGRADO - CONFIGURACIÓN DE ENLACES DIGITALES',
+            False,
+            requiere_inicializacion=False,
+        )
+
+    def configurar_responsables(self):
+        """Configuración de datos/responsables.csv (extensible)"""
+        widget_cfg = Configurar_responsables(self)
+        self.cargar_widget_menu(
+            widget_cfg,
+            'PROCESAMIENTO INTEGRADO - CONFIGURACIÓN DE RESPONSABLES Y UNIDADES VIRTUALES',
+            False,
+            requiere_inicializacion=False,
+        )
+
+    def configurar_mapas_gis(self):
+        """Configuración interactiva GIS de datos/mapas/mapas.csv (extensible)"""
+        widget_cfg = Configurar_mapas(self)
+        self.cargar_widget_menu(
+            widget_cfg,
+            'PROCESAMIENTO INTEGRADO - CONFIGURACIÓN DE MAPAS Y REGIONES GIS',
+            False,
+            requiere_inicializacion=False,
+        )
+
+    def configurar_estructura_dia(self):
+        """Guía instructiva (solo lectura) de la estructura de directorios ..\\DIA\\"""
+        widget_cfg = Configurar_estructura_dia(self.directorio_trabajo, self)
+        self.cargar_widget_menu(
+            widget_cfg,
+            'PROCESAMIENTO INTEGRADO - ESTRUCTURA DE DIRECTORIOS Y MANEJO DE ..\\DIA\\',
+            False,
+            requiere_inicializacion=False,
+        )
+
+    def respaldar_programa(self):
+        """Respaldo del programa en ZIP (solo PC Administrador)"""
+        es_pc_admin, _, msg_pc = verificar_permiso_respaldo_pc()
+        if not es_pc_admin:
+            QMessageBox.warning(self, 'Acceso Restringido', msg_pc)
+            return
+        widget_cfg = Respaldar_programa(self)
+        self.cargar_widget_menu(
+            widget_cfg,
+            'PROCESAMIENTO INTEGRADO - RESPALDO DEL PROGRAMA (ZIP)',
+            False,
+            requiere_inicializacion=False,
+        )
+
+    def restaurar_programa(self):
+        """Actualización o recuperación incremental desde respaldo ZIP (cualquier PC)"""
+        widget_cfg = Restaurar_programa(self)
+        self.cargar_widget_menu(
+            widget_cfg,
+            'PROCESAMIENTO INTEGRADO - ACTUALIZAR / RECUPERAR DESDE RESPALDO (ZIP)',
+            False,
+            requiere_inicializacion=False,
+        )
 
     def ingresar_datos_estacion_rg(self):
         QMessageBox.information(self, 'Configuración', 'Ingresar datos de estación en registro continuo.')
@@ -718,9 +840,11 @@ class VentanaPrincipal(QMainWindow):
     def habilitar_menus(self):
         """Habilita menús en estado de trabajo (Estado B) según el modo activo (Diario vs Período)"""
         self.menu_inicio.setEnabled(True)
+        # Configuración solo está habilitado en el Estado A inicial (igual que Inicialización de día)
+        self.menu_configuracion.setEnabled(False)
         if self.periodo == '':
             # MODO PERÍODO / CONSOLIDADO
-            self.menu_configuracion.setEnabled(True)
+            self.menu_ingreso_datos.setEnabled(True)
             self.menu_informes.setEnabled(True)
             self.menu_procesamiento.setEnabled(False)
             self.menu_otros_informes.setEnabled(False)
@@ -728,22 +852,29 @@ class VentanaPrincipal(QMainWindow):
             # MODO DIARIO
             self.menu_procesamiento.setEnabled(True)
             self.menu_otros_informes.setEnabled(True)
-            self.menu_configuracion.setEnabled(False)
+            self.menu_ingreso_datos.setEnabled(False)
             self.menu_informes.setEnabled(False)
         self.menu_ayuda.setEnabled(True)
         self.accion_inicializar_dia.setVisible(False)
         self.accion_salir.setVisible(True)
 
     def deshabilitar_menus(self):
-        """Deshabilita menús (estado inicial o dentro de subprograma)"""
-        self.menu_configuracion.setEnabled(False)
+        """Deshabilita menús de trabajo (en Estado A inicial deja activos Inicio y Configuración; dentro de subprograma los deshabilita)"""
+        self.menu_ingreso_datos.setEnabled(False)
         self.menu_informes.setEnabled(False)
         self.menu_procesamiento.setEnabled(False)
         self.menu_otros_informes.setEnabled(False)
         if self.widget_activo is not None:
             self.menu_inicio.setEnabled(False)
+            self.menu_configuracion.setEnabled(False)
+            self.accion_respaldo_programa.setEnabled(False)
+            self.accion_restaurar_programa.setEnabled(False)
         else:
             self.menu_inicio.setEnabled(True)
+            self.menu_configuracion.setEnabled(not self.datos_inicializados)
+            es_pc_admin, _, _ = verificar_permiso_respaldo_pc()
+            self.accion_respaldo_programa.setEnabled((not self.datos_inicializados) and es_pc_admin)
+            self.accion_restaurar_programa.setEnabled(not self.datos_inicializados)
             self.accion_inicializar_dia.setVisible(True)
             self.accion_salir.setVisible(True)
 

@@ -565,6 +565,29 @@ class Procesar_evento(QWidget):
             return
         self.ui.Lbl_submensajes.setText(texto)
 
+    def _obtener_responsable_virtual(self) -> str:
+        """
+        Retorna el responsable cuyas unidades virtuales deben utilizarse para
+        lectura/escritura de archivos FAST (.sis, .fas, .rsa).
+        Cuando el usuario activo de la sesión es 'RSA', utiliza las unidades
+        virtuales configuradas para 'RSA' aunque el turno original pertenezca a otro operador.
+        """
+        if (self.responsable or "").strip() == "RSA":
+            return "RSA"
+        return (self.responsable_evento or self.responsable or "RSA").strip()
+
+    def _tiene_permiso_sobre_evento_actual(self) -> bool:
+        """
+        Verifica si el usuario activo puede modificar/procesar el evento seleccionado.
+        El usuario 'RSA' tiene permiso sobre todos los turnos; un operador individual
+        solo sobre sus propios turnos o turnos aún asignados a 'RSA'/vacíos.
+        """
+        resp_act = (self.responsable or "").strip()
+        if resp_act == "RSA":
+            return True
+        resp_ev = (self.responsable_evento or "").strip()
+        return resp_ev in ("", "RSA", resp_act)
+
     def activar_hilo(self):
         """
         Activa el hilo de monitoreo del archivo .rsa del evento.
@@ -576,7 +599,8 @@ class Procesar_evento(QWidget):
             self.mostrar_submensaje("Evento no es SISMO — monitoreo no requerido.")
             return
 
-        if not verificar_drives_virtuales(self.responsable_evento):
+        resp_virtual = self._obtener_responsable_virtual()
+        if not verificar_drives_virtuales(resp_virtual):
             self.mostrar_submensaje("El Virtual no está conectado — monitoreo deshabilitado.")
             return
 
@@ -593,13 +617,13 @@ class Procesar_evento(QWidget):
                 lista_fast_siguiente = archivos_fast(
                     archivo,
                     self.directorio_trabajo,
-                    self.responsable_evento,
+                    resp_virtual,
                     modo_minuto_fast='siguiente'
                 )
                 lista_fast_real = archivos_fast(
                     archivo,
                     self.directorio_trabajo,
-                    self.responsable_evento,
+                    resp_virtual,
                     modo_minuto_fast='real'
                 )
                 archivos_monitoreo = [lista_fast_siguiente[2], lista_fast_real[2]]
@@ -607,7 +631,7 @@ class Procesar_evento(QWidget):
                 lista_fast_real = archivos_fast(
                     archivo,
                     self.directorio_trabajo,
-                    self.responsable_evento,
+                    resp_virtual,
                     modo_minuto_fast='real'
                 )
                 archivos_monitoreo = [lista_fast_real[2]]
@@ -922,7 +946,7 @@ class Procesar_evento(QWidget):
         self.widget_central_activo = estaciones_(
             self.estaciones_eventos,
             self.filtros_estaciones,
-            self.responsable_evento,
+            self._obtener_responsable_virtual(),
             parent=self
             )
 
@@ -998,15 +1022,16 @@ class Procesar_evento(QWidget):
         self.timer_verificar.setInterval(800)
 
         def verificar():
+            resp_virtual = self._obtener_responsable_virtual()
             # 1) Verificar que existan los drives del virtual
-            if not verificar_drives_virtuales(self.responsable_evento):
+            if not verificar_drives_virtuales(resp_virtual):
                 return  # seguir verificando en el próximo ciclo
 
             # 2) Obtener rutas Virtual (archivos FAST)
             archivos_v = archivos_fast(
                 archivo,
                 self.directorio_trabajo,
-                self.responsable_evento
+                resp_virtual
             )
             archivo_monitoreo = archivos_v[2]  # Ruta del archivo .fas
 
@@ -1040,7 +1065,7 @@ class Procesar_evento(QWidget):
         archivos_v = archivos_fast(
             archivo,
             self.directorio_trabajo,
-            self.responsable_evento
+            self._obtener_responsable_virtual()
         )
         archivo_monitoreo = archivos_v[2]   # .rsa
 
@@ -1124,7 +1149,7 @@ class Procesar_evento(QWidget):
             nuevo_proc = guardar_intento(
                 self.evento_procesar[1],
                 self.directorio_trabajo,
-                self.responsable_evento,
+                self._obtener_responsable_virtual(),
                 [fila[:] for fila in self.procesamiento],
                 self.archivo_rsa_actual
             )
@@ -1386,12 +1411,24 @@ class Procesar_evento(QWidget):
             self.actualizar_mapa(self.procesamiento)
 
         es_no_reportable = self.evento_procesar[2] in ('Ruido', 'CONTROL')
+        tiene_permiso = self._tiene_permiso_sobre_evento_actual()
+        if hasattr(self.ui, 'Btn_procesar'):
+            self.ui.Btn_procesar.setEnabled(tiene_permiso)
+        if hasattr(self.ui, 'Btn_eventos'):
+            self.ui.Btn_eventos.setEnabled(tiene_permiso)
+        if hasattr(self.ui, 'Cmb_bx_tipo_evento'):
+            self.ui.Cmb_bx_tipo_evento.setEnabled(tiene_permiso)
         if hasattr(self.ui, 'Btn_reportar'):
-            self.ui.Btn_reportar.setEnabled(not es_no_reportable)
+            self.ui.Btn_reportar.setEnabled((not es_no_reportable) and tiene_permiso)
         if hasattr(self.ui, 'Btn_acelerograma'):
-            self.ui.Btn_acelerograma.setEnabled(not es_no_reportable)
+            self.ui.Btn_acelerograma.setEnabled((not es_no_reportable) and tiene_permiso)
         if hasattr(self.ui, 'Btn_insertar'):
-            self.ui.Btn_insertar.setEnabled(not es_no_reportable)
+            self.ui.Btn_insertar.setEnabled((not es_no_reportable) and tiene_permiso)
+
+        if not tiene_permiso:
+            self.mostrar_submensaje(
+                f"Turno de «{self.responsable_evento}» — ingrese como «RSA» para modificar."
+            )
 
         self.actualizar_estilo_combo_actual()
 
@@ -1551,7 +1588,17 @@ class Procesar_evento(QWidget):
         if not self.evento_procesar:
             return
 
+        if not self._tiene_permiso_sobre_evento_actual():
+            QMessageBox.warning(
+                self.window(),
+                "Acceso Restringido por Responsable",
+                f"Este evento pertenece al turno asignado a «{self.responsable_evento}».\n\n"
+                f"Para procesar o modificar eventos de otros responsables, debe ingresar con el usuario «RSA».",
+            )
+            return
+
         archivo = self.evento_procesar[1]
+        resp_virtual = self._obtener_responsable_virtual()
 
         # Construcción ruta base del evento
         self.archivo = os.path.join(
@@ -1580,7 +1627,7 @@ class Procesar_evento(QWidget):
             self.procesamiento = guardar_intento(
                 self.evento_procesar[1],
                 self.directorio_trabajo,
-                self.responsable_evento,
+                resp_virtual,
                 self.procesamiento
                 )
             
@@ -1609,7 +1656,7 @@ class Procesar_evento(QWidget):
         if self.evento_procesar[2] == 'SISMO':
 
             # Verificar conexión del Virtual
-            self.bandera_virtual = verificar_drives_virtuales(self.responsable_evento)
+            self.bandera_virtual = verificar_drives_virtuales(resp_virtual)
 
             if not self.bandera_virtual:
                 msg = QMessageBox(
@@ -1626,7 +1673,7 @@ class Procesar_evento(QWidget):
                 self.archivos_procesamiento_virtual = archivos_fast(
                     archivo,
                     self.directorio_trabajo,
-                    self.responsable_evento
+                    resp_virtual
                 )
 
                 self.archivos_procesamiento_real_base = archivos_fast(
@@ -1784,10 +1831,14 @@ class Procesar_evento(QWidget):
         nombre_limpio = Path(self.archivo).stem.replace('_', '')
         prefijo_fecha = nombre_limpio[:8]
 
+        if self.horario in ('00:00 - 12:00', '12:00 - 18:00', '18:00 - 24:00'):
+            rango_horario_str = self.horario[:2] + '_' + self.horario[8:10]
+        else:
+            rango_horario_str = '00_24'
+
         base_temporal = (
             prefijo_fecha + '_' +
-            self.horario[:2] + '_' +
-            self.horario[8:10] + '_' +
+            rango_horario_str + '_' +
             self.responsable
         )
         archivo_reporte_temporal = os.path.join(
@@ -1818,11 +1869,16 @@ class Procesar_evento(QWidget):
         if self.responsables and len(self.responsables) >= 4:
             if self.horario == '00:00 - 12:00':
                 fila_turno_resp = self.responsables[1]
+                resumen_responsables.append(fila_turno_resp)
             elif self.horario == '12:00 - 18:00':
                 fila_turno_resp = self.responsables[2]
-            else:
+                resumen_responsables.append(fila_turno_resp)
+            elif self.horario == '18:00 - 24:00':
                 fila_turno_resp = self.responsables[3]
-            resumen_responsables.append(fila_turno_resp)
+                resumen_responsables.append(fila_turno_resp)
+            else:
+                # Caso 'Todo el día': incluir las 3 filas de turnos del día
+                resumen_responsables.extend(self.responsables[1:4])
 
         if not self.revision_procesamiento:
             subtitulo_reporte = "Reporte temporal"

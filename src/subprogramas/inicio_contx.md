@@ -55,10 +55,10 @@ graph TD
 | Método / Control | Tipo | Descripción |
 |---|---|---|
 | `Inicio_proceso` | `QMainWindow` | Ventana de configuración de inicio con formulario a la izquierda y diagnóstico a la derecha. |
-| `seleccionar_diario(estado)` | Método | Configura los turnos (`00:00-12:00`, `12:00-18:00`, `18:00-24:00`) y habilita el calendario. |
+| `seleccionar_diario(estado)` | Método | Configura los 4 períodos (`00:00 - 12:00`, `12:00 - 18:00`, `18:00 - 24:00`, `Todo el día`) y habilita el calendario. |
 | `seleccionar_periodo(estado)` | Método | Deshabilita el calendario y limpia el período para procesamiento acumulado. |
-| `Iniciar()` | Método | Valida campos, emite la señal `inicializado(...)` y cierra la ventana. |
-| `showDate(date)` | Método | Actualiza la ruta activa y refresca el diagnóstico en tiempo real en `panel_estado`. |
+| `Iniciar()` | Método | Valida permisos de turno por responsable (requiriendo usuario `RSA` para turnos ajenos), guarda la precarga local del equipo (`config_local_pc.json`), emite la señal `inicializado(...)` y cierra la ventana. |
+| `showDate(date)` | Método | Si la fecha es hoy, sugiere automáticamente el siguiente turno pendiente del día (`12H`, `18H` o `24H`); si la fecha no corresponde a hoy, selecciona por defecto `Todo el día`, y refresca `panel_estado`. |
 
 ---
 

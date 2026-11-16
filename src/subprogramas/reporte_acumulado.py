@@ -13,11 +13,21 @@ ruta_librerias=os.path.dirname(__file__)
 ruta_proyecto=extraer_hasta_directorio(ruta_librerias, 'rsa_sismologia')
 ruta_librerias = os.path.abspath(os.path.join(ruta_proyecto, 'src','librerias'))
 ruta_datos = os.path.abspath(os.path.join(ruta_proyecto, 'datos'))
+ruta_modulos_externos = os.path.abspath(os.path.join(ruta_proyecto, 'modulos externos'))
 # Insertar la ruta al inicio del sys.path
 if ruta_librerias not in sys.path:
     sys.path.insert(0, ruta_librerias)
 if ruta_datos not in sys.path:
     sys.path.insert(0, ruta_datos)
+if ruta_modulos_externos not in sys.path:
+    sys.path.insert(0, ruta_modulos_externos)
+
+try:
+    from generar_shape import generar_shapefile, metadatos_sugeridos, leer_csv as leer_csv_shape
+except Exception:
+    generar_shapefile = None
+    metadatos_sugeridos = None
+    leer_csv_shape = None
 
 
 from rsa_io import lectura_resumen,lectura_archivo,escritura_archivo,Guardar_dia
@@ -830,14 +840,44 @@ class Reporte_periodo(QMainWindow):
 
         # Guardar el archivo resultante
         self.nuevo_arbol.write(self.archivo_xml_escritura)
+
+        # Generar automáticamente las capas Shapefile GIS (.shp, .shx, .dbf, .prj, .cpg, .metadata.json, .qmd)
+        # junto al archivo <nombre>_cat.csv del reporte
+        detalle_shape = self._generar_shapes_reporte(self.archivo_cat_men)
+
         self._registrar_bitacora(
             f"✓ Informe guardado exitosamente en:\n  {directorio_}\n"
             f"  • PDF: {os.path.basename(self.archivo_1_pdf)}\n"
             f"  • Catálogo filtrado: {max(0, len(self.catalogo) - 1)} sismos | XML: {os.path.basename(self.archivo_xml_escritura)}"
+            + (f"\n  • {detalle_shape}" if detalle_shape else "")
         )
         QMessageBox.information(self,self.tr("Aviso"),self.tr("¡Archivo Guardado"))  
         self.inicializar_variables()
         self.Btn_guardar.setEnabled(False)
+
+    def _generar_shapes_reporte(self, ruta_cat_csv: str) -> str:
+        """
+        Genera el set completo de archivos Shapefile GIS (EPSG:32717 UTM 17S:
+        .shp, .shx, .dbf, .prj, .cpg, .metadata.json, .qmd) a partir del catálogo
+        `*_cat.csv` recién guardado en el reporte mensual / de período.
+        """
+        if generar_shapefile is None or metadatos_sugeridos is None or leer_csv_shape is None:
+            return ""
+        if not ruta_cat_csv or not os.path.isfile(ruta_cat_csv):
+            return ""
+        try:
+            ruta_path = Path(ruta_cat_csv)
+            df_cat = leer_csv_shape(ruta_path)
+            metadatos = metadatos_sugeridos(df_cat, ruta_path.stem)
+            cantidad, archivos = generar_shapefile(ruta_path, metadatos)
+            return f"Shapes GIS generados ({cantidad} eventos RSA, EPSG:32717): {ruta_path.stem}.shp (+6 archivos)"
+        except ValueError as e_val:
+            # Ejemplo: cuando el catálogo filtrado no contiene eventos con Fuente == 'RSA'
+            print(f"Aviso omitiendo generación de Shapefile en {ruta_cat_csv}: {e_val}")
+            return f"Shapes GIS omitidos ({e_val})"
+        except Exception as e:
+            print(f"Error generando Shapefile en {ruta_cat_csv}: {e}")
+            return f"Aviso Shapes GIS: {e}"
 
     # =========================================================================
     # MÉTODOS DE COORDINACIÓN VISUAL DE ZONAS, RADIOBUTTONS Y BITÁCORA

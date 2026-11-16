@@ -31,6 +31,7 @@ from metodos_rsa import (leer_mseed,grafico_evento_int,lectura_archivo,
                          filtro_evento)
 from rsa_procesamiento import extraer_dia
 from rsa_io import escritura_archivo
+from rsa_utilidades import obtener_responsables_turnos_dia
 
 from metodos_gestion import obtencion_hora,lectura_eventos,parametros_estaciones,obtener_directorios
 
@@ -202,25 +203,43 @@ class Extraer_evento(QWidget):
             if 0 <= indice_actual < self.cmbx_eventos.count():
                 self.cmbx_eventos.setCurrentIndex(indice_actual)
 
+    def _marca_en_periodo_activo(self, ticks_marca: int) -> bool:
+        """Verifica si una marca (en ticks de 1/64 s) cae dentro de self.periodo."""
+        rangos = {
+            "00:00 - 12:00": (0.0, 12.0),
+            "12:00 - 18:00": (12.0, 18.0),
+            "18:00 - 24:00": (18.0, 24.0),
+        }
+        if self.periodo not in rangos:
+            return True
+        h = float(ticks_marca) / (64.0 * 3600.0)
+        h_ini, h_fin = rangos[self.periodo]
+        return h_ini <= h < h_fin
+
     def buscar_siguiente_marca_pendiente(self, indice_referencia):
         """
         Busca el siguiente evento no procesado (habilitado) en self.hora_sismos.
-        Primero busca hacia adelante desde indice_referencia + 1.
-        Si llega al final, busca desde el inicio (0 hasta indice_referencia)
-        para asegurar que no haya eventos salteados manualmente.
+        Prioriza las marcas que pertenecen al período activo (self.periodo), y si no
+        queda ninguna en dicho período, busca en el resto del día.
         Retorna el índice entero si encuentra uno, o None si todos fueron extraídos.
         """
         if not hasattr(self, 'hora_sismos') or not self.hora_sismos:
             return None
 
         total_marcas = len(self.hora_sismos)
-        # 1. Búsqueda hacia adelante
+        # 1. Priorizar marcas dentro del período activo (hacia adelante y luego desde el inicio)
+        for i in range(indice_referencia + 1, total_marcas):
+            if self.hora_sismos[i] not in self.hora_sismos_extraidos and self._marca_en_periodo_activo(self.hora_sismos[i]):
+                return i
+        for i in range(0, max(0, indice_referencia)):
+            if self.hora_sismos[i] not in self.hora_sismos_extraidos and self._marca_en_periodo_activo(self.hora_sismos[i]):
+                return i
+
+        # 2. Respaldo general en todo el día
         for i in range(indice_referencia + 1, total_marcas):
             if self.hora_sismos[i] not in self.hora_sismos_extraidos:
                 return i
-
-        # 2. Búsqueda desde el inicio (revisión de eventos salteados)
-        for i in range(0, indice_referencia):
+        for i in range(0, max(0, indice_referencia)):
             if self.hora_sismos[i] not in self.hora_sismos_extraidos:
                 return i
 
@@ -313,7 +332,19 @@ class Extraer_evento(QWidget):
             estacion=self.parametros['CODIGO'][indice]+self.parametros['COMPONENTE'][indice]+aporta+self.filtros_estaciones[i]+" "
             estaciones=estaciones+estacion
         indice_guardado = self.cmbx_eventos.currentIndex()
-        evento_auxiliar = (n_evento, nombre_sis, tipo_evento, ahora, self.t_inicio, self.t_final, self.responsable, estaciones, self.hora_sismos[indice_guardado])
+        # Si se trabaja con 'RSA' o 'Todo el día' y el turno del evento ya tiene un responsable asignado,
+        # preservar dicho responsable; caso contrario asignar self.responsable
+        responsable_marca = self.responsable
+        try:
+            turnos_dia = obtener_responsables_turnos_dia(self.archivo)
+            h_ev = fecha_real.hour
+            idx_t = 0 if h_ev < 12 else (1 if h_ev < 18 else 2)
+            duenio_t = turnos_dia[idx_t]["responsable"]
+            if turnos_dia[idx_t]["procesado"] and duenio_t not in ("", "RSA"):
+                responsable_marca = duenio_t
+        except Exception:
+            pass
+        evento_auxiliar = (n_evento, nombre_sis, tipo_evento, ahora, self.t_inicio, self.t_final, responsable_marca, estaciones, self.hora_sismos[indice_guardado])
         self.eventos_auxiliar.append(evento_auxiliar)
         escritura_archivo(self.directorios['archivo_auxiliar'], self.eventos_auxiliar)
         self.cargar_lista_eventos(nuevo_indice=indice_guardado)
@@ -410,28 +441,57 @@ class Extraer_evento(QWidget):
         self.grupo_evento.setEnabled(True)       
     
     def validar_periodo_evento(self, mostrar_dialogo=True):
-        periodo=[(0,120000),(120000,180000),(180000,240000)]
-        diccionaio_periodo= {
+        periodo = [(0, 120000), (120000, 180000), (180000, 240000)]
+        diccionario_periodo = {
             "00:00 - 12:00": 0,
             "12:00 - 18:00": 1,
-            "18:00 - 24:00": 2
+            "18:00 - 24:00": 2,
         }
         self.grupo_evento.setEnabled(False)
-        hora_str=self.cmbx_eventos.currentText()[-8:]
+        hora_str = self.cmbx_eventos.currentText()[-8:]
         try:
-            var_tiempo=int(hora_str[:2]+hora_str[3:5]+hora_str[6:8])
+            var_tiempo = int(hora_str[:2] + hora_str[3:5] + hora_str[6:8])
         except (ValueError, IndexError):
             self.Btn_eventos.setEnabled(False)
             return False
 
-        if self.periodo not in diccionaio_periodo:
+        # Determinar a qué turno (0=12H, 1=18H, 2=24H) pertenece la hora del evento
+        if var_tiempo < 120000:
+            idx_turno_ev = 0
+        elif var_tiempo < 180000:
+            idx_turno_ev = 1
+        else:
+            idx_turno_ev = 2
+
+        # Control de propiedad de turno: si no es 'RSA' y el turno pertenece a otro responsable, inhibir
+        if (self.responsable or "").strip() != "RSA":
+            try:
+                turnos_dia = obtener_responsables_turnos_dia(self.archivo)
+                info_t = turnos_dia[idx_turno_ev]
+                duenio_t = info_t["responsable"]
+                if info_t["procesado"] and duenio_t not in ("", "RSA", (self.responsable or "").strip()):
+                    self.Btn_eventos.setEnabled(False)
+                    if mostrar_dialogo:
+                        QMessageBox.warning(
+                            self,
+                            "Turno de otro responsable",
+                            f"Esta marca pertenece al período {info_t['periodo']} ({info_t['etiqueta']}), "
+                            f"asignado a «{duenio_t}».\n\n"
+                            f"Para acceder a turnos de otros responsables debe ingresar con el usuario «RSA».",
+                        )
+                    return False
+            except Exception:
+                pass
+
+        # Si el período es 'Todo el día' (o vacío), no hay restricción horaria
+        if self.periodo not in diccionario_periodo:
             self.Btn_eventos.setEnabled(True)
             return True
 
-        index_periodo=diccionaio_periodo[self.periodo]
-        minimo=periodo[index_periodo][0]
-        maximo=periodo[index_periodo][1]
-        if var_tiempo>minimo and var_tiempo<maximo:
+        index_periodo = diccionario_periodo[self.periodo]
+        minimo = periodo[index_periodo][0]
+        maximo = periodo[index_periodo][1]
+        if minimo <= var_tiempo < maximo:
             self.Btn_eventos.setEnabled(True)
             return True
         else:

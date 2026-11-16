@@ -25,13 +25,23 @@ if ruta_datos not in sys.path:
     sys.path.insert(0, ruta_datos)
 
 from PyQt5.QtWidgets import (
-    QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QFileDialog
+    QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QFileDialog,
+    QMessageBox, QCheckBox
 )
 from PyQt5 import uic, QtCore, QtWidgets
 from PyQt5.QtCore import Qt, QDate, pyqtSignal
 
 from metodos_rsa import lectura_archivo
 from metodos_gestion import parametros_estaciones
+from rsa_utilidades import (
+    OPCIONES_PERIODO_DIARIO,
+    OPCION_TODO_EL_DIA,
+    cargar_config_local_pc,
+    guardar_config_local_pc,
+    obtener_responsables_turnos_dia,
+    sugerir_siguiente_periodo_dia,
+    validar_permiso_responsable_turno,
+)
 from panel_estado import PanelEstadoJornada
 
 
@@ -79,6 +89,17 @@ class Inicio_proceso(QMainWindow):
             }
         """)
 
+        # Opción configurable en el propio programa para recordar el responsable y ruta habitual de este PC
+        self.chk_recordar_pc = QCheckBox("Recordar responsable y ruta en este PC", self.cmbx_resposables_2)
+        self.chk_recordar_pc.setChecked(True)
+        self.chk_recordar_pc.setToolTip(
+            "Guarda el responsable y el directorio DIA seleccionados como configuración "
+            "predeterminada local de este equipo (config_local_pc.json, excluido de Git)."
+        )
+        self.chk_recordar_pc.setStyleSheet("font-weight: normal; font-size: 9pt; color: #263238;")
+        if hasattr(self, 'layoutGrupoParams'):
+            self.layoutGrupoParams.insertWidget(3, self.chk_recordar_pc)
+
         layout_principal.addWidget(widget_formulario, 0)
 
         # Panel derecho: Dashboard Nativo de Estado de Jornada
@@ -104,9 +125,22 @@ class Inicio_proceso(QMainWindow):
         # Obtener parámetros de estaciones
         self.parametros = parametros_estaciones()
 
-        # Configurar variables recibidas
-        self.directorio_trabajo = directorio_trabajo
-        self.responsable = responsable
+        # Cargar configuración local del PC (creándola si no existe)
+        self.config_pc = cargar_config_local_pc()
+        if directorio_trabajo and directorio_trabajo != 'G:/Mi unidad/DIA/' and os.path.exists(directorio_trabajo):
+            dir_precarga = directorio_trabajo
+        else:
+            dir_precarga = self.config_pc.get("directorio_trabajo") or directorio_trabajo or "G:/Mi unidad/DIA/"
+        resp_precarga = (
+            responsable
+            if (responsable and responsable != "RSA")
+            else (self.config_pc.get("responsable_habitual") or responsable or "RSA")
+        )
+
+        # Configurar variables recibidas / precargadas
+        self.directorio_trabajo = dir_precarga if os.path.exists(dir_precarga) else (directorio_trabajo or dir_precarga)
+        self.responsable = resp_precarga if resp_precarga in lista_resp else (lista_resp[0] if lista_resp else "RSA")
+        self.cmbx_resposables.setCurrentText(self.responsable)
         self.periodo = periodo or "00:00 - 12:00"
 
         # Inicializar fecha y archivo por defecto con la fecha del sistema
@@ -127,16 +161,24 @@ class Inicio_proceso(QMainWindow):
         self.seleccionar_diario(True)
         self.showDate(self.date)
 
+    def _es_fecha_actual(self, fecha_qt: QDate) -> bool:
+        """Verifica si la fecha seleccionada en el calendario corresponde al día actual del sistema."""
+        return fecha_qt == QDate.currentDate()
+
     def seleccionar_diario(self, estado):
         if estado:
             self.dia.setEnabled(True)
             self.cmbx_periodo.blockSignals(True)
             self.cmbx_periodo.clear()
-            self.cmbx_periodo.addItems(("00:00 - 12:00", "12:00 - 18:00", "18:00 - 24:00"))
+            self.cmbx_periodo.addItems(OPCIONES_PERIODO_DIARIO)
             self.cmbx_periodo.setEnabled(True)
-            self.cmbx_periodo.setCurrentIndex(0)
+            fecha_sel = self.dia.selectedDate() if hasattr(self, 'dia') else self.date
+            es_hoy = self._es_fecha_actual(fecha_sel)
+            sugerido = sugerir_siguiente_periodo_dia(self.archivo, es_fecha_hoy=es_hoy)
+            idx_sug = self.cmbx_periodo.findText(sugerido)
+            self.cmbx_periodo.setCurrentIndex(idx_sug if idx_sug >= 0 else 0)
             self.cmbx_periodo.blockSignals(False)
-            self.periodo = "00:00 - 12:00"
+            self.periodo = self.cmbx_periodo.currentText() or "00:00 - 12:00"
             self.desplegar_mensaje()
 
     def seleccionar_periodo(self, estado):
@@ -159,8 +201,28 @@ class Inicio_proceso(QMainWindow):
         # Determinar período según el radio button activo
         if self.radioButton_diario.isChecked():
             self.periodo = self.cmbx_periodo.currentText() or "00:00 - 12:00"
+            permitido, mensaje_bloqueo = validar_permiso_responsable_turno(
+                self.archivo, self.responsable, self.periodo
+            )
+            if not permitido:
+                QMessageBox.warning(
+                    self,
+                    "Acceso Restringido por Responsable",
+                    mensaje_bloqueo,
+                )
+                return
         else:
             self.periodo = ""
+
+        # Actualizar archivo de precarga local del PC (config_local_pc.json)
+        datos_memoria_pc = {
+            "ultimo_dia_procesado": self.date.toString("yyyy-MM-dd"),
+            "ultimo_periodo_procesado": self.periodo or OPCION_TODO_EL_DIA,
+        }
+        if hasattr(self, 'chk_recordar_pc') and self.chk_recordar_pc.isChecked():
+            datos_memoria_pc["responsable_habitual"] = self.responsable
+            datos_memoria_pc["directorio_trabajo"] = self.directorio_trabajo
+        self.config_pc = guardar_config_local_pc(datos_memoria_pc)
 
         self.fue_inicializado = True
         self.inicializado.emit(self.archivo, self.directorio_trabajo, self.responsable, self.periodo)
@@ -172,6 +234,8 @@ class Inicio_proceso(QMainWindow):
             if not folderpath.endswith('/') and not folderpath.endswith('\\'):
                 folderpath = folderpath + '/'
             self.directorio_trabajo = folderpath
+            if hasattr(self, 'chk_recordar_pc') and self.chk_recordar_pc.isChecked():
+                self.config_pc = guardar_config_local_pc({"directorio_trabajo": self.directorio_trabajo})
             self.showDate(self.dia.selectedDate())
 
     def limpiar_estado(self):
@@ -189,7 +253,14 @@ class Inicio_proceso(QMainWindow):
         self.date = date
         self.archivo = os.path.join(self.directorio_trabajo, date.toString('yyyyMMdd000000'))
         if self.radioButton_diario.isChecked():
-            self.periodo = self.cmbx_periodo.currentText() or "00:00 - 12:00"
+            es_hoy = self._es_fecha_actual(date)
+            sugerido = sugerir_siguiente_periodo_dia(self.archivo, es_fecha_hoy=es_hoy)
+            self.cmbx_periodo.blockSignals(True)
+            idx_sug = self.cmbx_periodo.findText(sugerido)
+            if idx_sug >= 0:
+                self.cmbx_periodo.setCurrentIndex(idx_sug)
+            self.cmbx_periodo.blockSignals(False)
+            self.periodo = self.cmbx_periodo.currentText() or sugerido
         else:
             self.periodo = ""
         self.desplegar_mensaje()
@@ -205,6 +276,8 @@ class Inicio_proceso(QMainWindow):
 
     def cambio_responsable(self, texto):
         self.responsable = texto
+        if hasattr(self, 'chk_recordar_pc') and self.chk_recordar_pc.isChecked() and texto:
+            self.config_pc = guardar_config_local_pc({"responsable_habitual": texto})
         self.desplegar_mensaje()
 
     def desplegar_mensaje(self):
@@ -217,11 +290,32 @@ class Inicio_proceso(QMainWindow):
                 "<b>PERÍODO:</b> <i>Completo / Acumulado</i>"
             )
         else:
+            turnos_dia = obtener_responsables_turnos_dia(self.archivo)
+            resumen_turnos = []
+            for t_info in turnos_dia:
+                if t_info["procesado"]:
+                    duenio = t_info["responsable"] or "RSA"
+                    resumen_turnos.append(f"{t_info['etiqueta']}: {duenio} ({t_info['total']})")
+                else:
+                    resumen_turnos.append(f"{t_info['etiqueta']}: Libre")
+            linea_turnos = " | ".join(resumen_turnos)
+
+            permitido, _ = validar_permiso_responsable_turno(self.archivo, self.responsable, self.periodo)
+            aviso_permiso = ""
+            if not permitido:
+                aviso_permiso = (
+                    "<br><span style='color:#c62828; font-weight:bold;'>"
+                    "⚠ Turno de otro responsable (use «RSA» para acceder)"
+                    "</span>"
+                )
+
             mensaje = (
                 "<b>DÍA:</b> " + fecha_str + "<br>"
                 "<b>DIRECTORIO:</b> " + str(self.directorio_trabajo) + "<br>"
                 "<b>RESPONSABLE:</b> " + str(self.responsable) + "<br>"
-                "<b>TURNO:</b> " + str(self.periodo)
+                "<b>TURNO:</b> " + str(self.periodo) + "<br>"
+                "<b>ESTADO TURNOS:</b> <span style='font-size:8pt;'>" + linea_turnos + "</span>"
+                + aviso_permiso
             )
 
         self.mensajes.setHtml(mensaje)

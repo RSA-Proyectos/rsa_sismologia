@@ -132,19 +132,20 @@ def _construir_ayuda_nivel_menu(ventana_principal) -> dict:
     # Verificar el estado real de habilitación de cada pestaña en la barra de menú
     hab_inicio = hasattr(ventana_principal, 'menu_inicio') and ventana_principal.menu_inicio.isEnabled()
     hab_config = hasattr(ventana_principal, 'menu_configuracion') and ventana_principal.menu_configuracion.isEnabled()
+    hab_ingreso = hasattr(ventana_principal, 'menu_ingreso_datos') and ventana_principal.menu_ingreso_datos.isEnabled()
     hab_informes = hasattr(ventana_principal, 'menu_informes') and ventana_principal.menu_informes.isEnabled()
     hab_proc = hasattr(ventana_principal, 'menu_procesamiento') and ventana_principal.menu_procesamiento.isEnabled()
     hab_otros = hasattr(ventana_principal, 'menu_otros_informes') and ventana_principal.menu_otros_informes.isEnabled()
 
     # -------------------------------------------------------------------------
-    # CASO 1.A: Estado A — Sin inicializar día (Solo pestaña 'Inicio' activa)
+    # CASO 1.A: Estado A — Sin inicializar día (Pestañas 'Inicio' y 'Configuración' activas)
     # -------------------------------------------------------------------------
     if not datos_inicializados:
         html_inicio = """
         <h2>Pestaña Habilitada: Inicio</h2>
         <div class="caja-estado-vivo">
             <b>Estado actual del menú:</b> Aún no se ha inicializado la sesión de trabajo.
-            Únicamente está habilitada la pestaña <b>Inicio</b>; las demás pestañas permanecen
+            Están habilitadas las pestañas <b>Inicio</b> y <b>Configuración</b>; las demás pestañas permanecen
             deshabilitadas hasta que defina si trabajará en modo <b>Diario</b> o en modo <b>Período</b>.
         </div>
 
@@ -159,8 +160,8 @@ def _construir_ayuda_nivel_menu(ventana_principal) -> dict:
                 <td>
                     Abre el módulo de configuración de jornada. Allí deberá elegir:
                     <ul>
-                        <li><b>Modo Diario (con turno 00–12, 12–18 o 18–24):</b> Habilitará en el menú principal las pestañas <b>Procesamiento</b> y <b>Otros Informes</b>.</li>
-                        <li><b>Modo Período (consolidado):</b> Habilitará en el menú principal las pestañas <b>Configuración</b> e <b>Informes</b>.</li>
+                        <li><b>Modo Diario (con turno 00–12, 12–18, 18–24 o Todo el día):</b> Habilitará en el menú principal las pestañas <b>Procesamiento</b> y <b>Otros Informes</b>.</li>
+                        <li><b>Modo Período (consolidado):</b> Habilitará en el menú principal las pestañas <b>Ingreso de Datos</b> e <b>Informes</b>.</li>
                     </ul>
                 </td>
             </tr>
@@ -170,13 +171,61 @@ def _construir_ayuda_nivel_menu(ventana_principal) -> dict:
             </tr>
         </table>
         """
+        html_config_inicial = """
+        <h2>Pestaña Habilitada: Configuración</h2>
+        <div class="caja-flujo">
+            Esta pestaña está habilitada en el <b>Estado Inicial (Estado A)</b> al igual que <b>Inicio</b>, y se deshabilita
+            automáticamente en cuanto ingresa a <i>Inicialización de día</i> o inicia un flujo de trabajo.
+        </div>
+
+        <h3>Opciones disponibles en la pestaña <code>Configuración</code>:</h3>
+        <table>
+            <tr>
+                <th>Opción del Menú</th>
+                <th>Archivo / Función dentro del sistema</th>
+            </tr>
+            <tr>
+                <td><b>Estaciones (<code>estaciones.csv</code>)</b></td>
+                <td>Edición de los 101 registros constantes (<code>0..100</code>) de estaciones sísmicas y acelerográficas de la red.</td>
+            </tr>
+            <tr>
+                <td><b>Estaciones analógicas (<code>analogicas.csv</code>)</b></td>
+                <td>Asignación de los 16 canales constantes del sistema analógico seleccionándolos directamente desde el catálogo de <code>estaciones.csv</code>.</td>
+            </tr>
+            <tr>
+                <td><b>Enlaces digitales (<code>digitales.csv</code>)</b></td>
+                <td>Administración extensible de carpetas/enlaces digitales asociados al número de estación en <code>estaciones.csv</code> y su bandera <code>Habilitado</code>.</td>
+            </tr>
+            <tr>
+                <td><b>Responsables (<code>responsables.csv</code>)</b></td>
+                <td>Administración extensible de analistas responsables y sus unidades virtuales (<code>ProcesoV2</code>), protegiendo el usuario maestro <code>RSA</code>.</td>
+            </tr>
+            <tr>
+                <td><b>Mapas y regiones GIS (<code>mapas.csv</code>)</b></td>
+                <td>Configuración interactiva con visor GIS en vivo para definir los límites geográficos (<code>lat_min, lat_max, long_min, long_max</code>), el paso de grilla (<code>salto</code>) y las estaciones asociadas a cada mapa o proyecto.</td>
+            </tr>
+            <tr>
+                <td><b>Estructura y directorio de trabajo (<code>..\\DIA\\</code>)</b></td>
+                <td>Guía instructiva (solo lectura) del árbol jerárquico <code>DIA/</code> (años, meses, semanas, días y sus 7 subcarpetas), simulador de rutas canónicas por fecha y explorador de inventario en disco (<code>TXT</code> / <code>JSON</code>).</td>
+            </tr>
+            <tr>
+                <td><b>Respaldo del programa (ZIP)</b></td>
+                <td>Habilitado únicamente en la computadora del Administrador (<code>pc_administrador: true</code> en <code>config_local_pc.json</code>). Comprime <code>datos/</code>, <code>modulos externos/</code> y <code>src/</code> excluyendo <code>VW Backup</code>, Vectorworks y <code>__pycache__</code>.</td>
+            </tr>
+            <tr>
+                <td><b>Actualizar / Recuperar desde respaldo (ZIP)</b></td>
+                <td>Disponible para cualquier computadora en el Estado Inicial. Descomprime un respaldo <code>.zip</code> en la carpeta indicada respetando la estructura y copiando únicamente archivos nuevos o con fecha más reciente.</td>
+            </tr>
+        </table>
+        """
+        pestanas_iniciales = [('Pestaña: Inicio (Habilitada)', html_inicio)]
+        if hab_config:
+            pestanas_iniciales.append(('Pestaña: Configuración (Habilitada)', html_config_inicial))
         return {
             'ruta_ubicacion': 'Menú Principal  ▸  Estado Inicial (Sin sesión iniciada)',
-            'subtitulo_estado': 'Solo está habilitada la pestaña "Inicio". Ingrese a "Inicialización de día" para activar los menús de trabajo.',
+            'subtitulo_estado': 'Están habilitadas las pestañas "Inicio" y "Configuración". Ingrese a "Inicialización de día" para activar los menús de trabajo.',
             'indice_activo': 0,
-            'pestanas': [
-                ('Pestaña: Inicio (Habilitada)', html_inicio),
-            ]
+            'pestanas': pestanas_iniciales,
         }
 
     # -------------------------------------------------------------------------
@@ -258,19 +307,27 @@ def _construir_ayuda_nivel_menu(ventana_principal) -> dict:
         """
         pestanas_habilitadas.append(('Pestaña: Otros Informes', html_otros_informes))
 
-    if hab_config:
-        html_configuracion = """
-        <h2>Pestaña Habilitada: Configuración</h2>
+    if hab_ingreso:
+        html_ingreso_datos = """
+        <h2>Pestaña Habilitada: Ingreso de Datos</h2>
         <div class="caja-estado-vivo">
             <b>Modo Período Activo:</b> Esta pestaña se habilita cuando inicializa el sistema en modo <b>Período</b>,
-            permitiendo administrar parámetros de red e integrar catálogos externos antes de emitir informes acumulados.
+            permitiendo incorporar registros de estaciones fuera de línea e integrar catálogos de redes externas en masa.
         </div>
 
-        <h3>Opciones de la pestaña <code>Configuración</code>:</h3>
+        <h3>Opciones de la pestaña <code>Ingreso de Datos</code>:</h3>
         <table>
             <tr>
                 <th>Submenú</th>
                 <th>Función dentro del sistema</th>
+            </tr>
+            <tr>
+                <td><b>Ingresar datos de estación en registro continuo</b></td>
+                <td>Incorporación de registros continuos MiniSEED provenientes de estaciones fuera de línea.</td>
+            </tr>
+            <tr>
+                <td><b>Ingresar eventos de estaciones acelerográficas</b></td>
+                <td>Incorporación de eventos acelerográficos en formato EVT hacia los directorios de trabajo.</td>
             </tr>
             <tr>
                 <td><b>Cargar datos de IGEPN</b></td>
@@ -280,23 +337,16 @@ def _construir_ayuda_nivel_menu(ventana_principal) -> dict:
                 <td><b>Cargar datos de USGS</b></td>
                 <td>Abre la ventana de integración para pegar bloques de texto de <b>21 columnas</b> del catálogo del USGS y asociarlos (&lt; 60 s) a los catálogos diarios de la RSA.</td>
             </tr>
-            <tr>
-                <td><b>Estaciones / Enlaces digitales</b></td>
-                <td>Consulta y administración de parámetros de estaciones sismológicas y enlaces de telemetría.</td>
-            </tr>
-            <tr>
-                <td><b>Ingresar datos en registro continuo / Eventos acelerográficos</b></td>
-                <td>Opciones para incorporación de registros continuos externos y eventos acelerográficos (EVT).</td>
-            </tr>
         </table>
         """
-        pestanas_habilitadas.append(('Pestaña: Configuración', html_configuracion))
+        pestanas_habilitadas.append(('Pestaña: Ingreso de Datos', html_ingreso_datos))
 
     if hab_informes:
         html_informes = """
         <h2>Pestaña Habilitada: Informes</h2>
         <div class="caja-flujo">
-            Esta pestaña concentra la generación de boletines acumulados (semanales, mensuales, anuales o por rango de fechas) y productos cartográficos.
+            Esta pestaña concentra la generación de boletines acumulados (semanales, mensuales, anuales o por rango de fechas),
+            reportes de enjambres/réplicas y capas Shapefile GIS integradas.
         </div>
 
         <h3>Opciones de la pestaña <code>Informes</code>:</h3>
@@ -308,7 +358,7 @@ def _construir_ayuda_nivel_menu(ventana_principal) -> dict:
             <tr>
                 <td><b>Reporte periodo</b></td>
                 <td>
-                    Módulo principal de consolidación de catálogos y emisión de reportes PDF según el <b>Mapa/Zona</b> escogido:
+                    Módulo principal de consolidación de catálogos, generación automática de capas <b>Shapefile GIS</b> (<code>.shp</code>, <code>.shx</code>, <code>.dbf</code>, <code>.prj</code>, <code>.cpg</code>, <code>.metadata.json</code>, <code>.qmd</code> en UTM 17S) y emisión de reportes PDF según el <b>Mapa/Zona</b> escogido:
                     <ul>
                         <li><b>Ecuador:</b> Boletín Oficial RSA Detallado (<b>M3</b>) o Resumen (<b>M4</b>).</li>
                         <li><b>Facultad:</b> Boletín Institucional Facultad / Redes Sociales (<b>M5</b>).</li>
@@ -320,12 +370,8 @@ def _construir_ayuda_nivel_menu(ventana_principal) -> dict:
             <tr>
                 <td><b>Reporte enjambre</b></td>
                 <td>
-                    Módulo especializado para aislar y reportar <b>enjambres y secuencias sísmicas</b> en un <b>período en días</b> y dentro de un <b>lugar geométrico</b> (<b>Círculo</b> por centro y radio en km, <b>Rectángulo</b> o <b>Polígono libre</b> dibujado sobre el mapa GIS interactivo), generando informes PDF en ReportLab con el contorno del enjambre trazado en la portada.
+                    Módulo especializado para aislar y reportar <b>enjambres sísmicos</b> o secuencias de <b>sismo principal y réplicas</b> en un <b>período en días</b> y dentro de un <b>lugar geométrico</b> (<b>Círculo</b> por centro y radio en km, <b>Rectángulo</b> o <b>Polígono libre</b> dibujado sobre el mapa GIS interactivo), generando informes PDF en ReportLab.
                 </td>
-            </tr>
-            <tr>
-                <td><b>Generar Shapes</b></td>
-                <td>Exportación de capas vectoriales GIS (<code>.shp</code>, <code>.dbf</code>, <code>.prj</code>).</td>
             </tr>
         </table>
         """

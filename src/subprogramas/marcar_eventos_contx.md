@@ -78,6 +78,7 @@ Las marcas se leen y escriben en la ruta `directorios['archivo_marcas']` estruct
 |---|---|---|
 | `CustomScrollArea` | `QScrollArea` | Área de desplazamiento personalizada que soporta *scroll* horizontal mediante `Shift + Rueda del Ratón`. |
 | `Marcar_evento` | `QWidget` | Clase principal que orquesta la carga de datos MiniSEED, el visualizador helicoidal y las marcas. |
+| `_segmento_inicial_por_periodo()` | `(periodo) -> int` | Posiciona automáticamente el visor al inicio del período activo (`0` para `00:00 - 12:00` / `Todo el día`, `6` para `12:00 - 18:00`, `9` para `18:00 - 24:00`). |
 | `cambio_de_fecha()` | `()` | Lista y ordena los archivos MiniSEED del directorio según `CODIGO` y el flag `HAB_CANAL == '1'` de `parametros_estaciones()`. |
 | `seleccionar_grafico_mseed()` | `(item)` | Carga el archivo MiniSEED seleccionado, aplica diezmado rápido con `diezmar_senal()` y restaura la posición del visor. |
 | `procesar_y_graficar()` | `()` | Dibuja el segmento de 2 horas en sub-líneas continuas de 6 minutos con separación vertical de `-2000` cuentas y ancho extendido en píxeles. |

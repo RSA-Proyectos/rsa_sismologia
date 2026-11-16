@@ -71,6 +71,7 @@ stateDiagram-v2
 | `apilar_estado_actual()` | Método | Guarda el estado completo de la ventana antes de entrar a un subprograma. |
 | `desapilar_y_restaurar_estado()` | Método | Restaura el estado previo al desapilar del gestor LIFO. |
 | `volver_estado_trabajo()` | Método | Desmonta el subprograma activo y restablece el Estado B mediante `QTimer.singleShot`. |
+| `habilitar_menus()` / `deshabilitar_menus()` | Métodos | Gestionan la barra superior de menús: en **Estado A** se habilitan `Inicio` y `Configuración` (`Estaciones`, `Enlaces digitales`); en **Estado B — Modo Período** se habilitan `Ingreso de Datos` e `Informes` (`Reporte periodo`, `Reporte enjambre`) y se deshabilita `Configuración`; en **Estado B — Modo Diario** se habilitan `Procesamiento` y `Otros Informes`. |
 | `reporte_enjambre()` | Método | Monta el subprograma `Reporte_enjambre` (`src/subprogramas/reporte_enjambre.py`) dentro del contenedor central mediante `cargar_widget_menu` para delimitación de lugares geométricos y emisión de boletines PDF de enjambres sísmicos. |
 | `mostrar_ayuda_contextual()` | Método | Detecta dinámicamente el estado o subprograma activo y despliega `DialogoAyudaContextual` (accesible desde el botón `? Ayuda de esta pantalla`, el menú `Ayuda` o la tecla `F1`). |
 | `paintEvent(event)` | Evento | Dibuja la marca de agua institucional con opacidad controlada únicamente cuando no hay subprograma activo. |

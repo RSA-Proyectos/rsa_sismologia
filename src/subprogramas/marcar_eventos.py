@@ -88,16 +88,32 @@ class Marcar_evento(QWidget):
         self.barra_horas.valueChanged.connect(self.cambiar_periodo_por_barra)
 
         self.stream = None
-        self.segmento_actual = 0
+        self.segmento_actual = self._segmento_inicial_por_periodo(self.periodo)
         self.amplitude_factor = 1.0
 
-        # Guardar el estado de la posición actual
-        self.posicion_segmento_guardada = 0
+        # Guardar el estado de la posición actual posicionada al inicio del período activo
+        self.posicion_segmento_guardada = self.segmento_actual
         self.posicion_scroll_guardada = 0
         # Conectar el evento de clic del ratón
         self.canvas.mpl_connect('button_press_event', self.marcar_o_borrar_cruz)
         # Inicializar la interfaz
         self.cambio_de_fecha()
+
+    @staticmethod
+    def _segmento_inicial_por_periodo(periodo: str) -> int:
+        """
+        Retorna el índice del segmento de 2 horas correspondiente al inicio del
+        período que se está procesando:
+          - '00:00 - 12:00' o 'Todo el día' -> segmento 0 (00:00 a 02:00)
+          - '12:00 - 18:00'                 -> segmento 6 (12:00 a 14:00)
+          - '18:00 - 24:00'                 -> segmento 9 (18:00 a 20:00)
+        """
+        p = (periodo or "").strip()
+        if p == "12:00 - 18:00":
+            return 6
+        if p == "18:00 - 24:00":
+            return 9
+        return 0
 
 
     def procesar_y_graficar(self):
@@ -156,8 +172,10 @@ class Marcar_evento(QWidget):
         start_hour = self.inicio_segmento.hour
         end_hour = (start_hour + 2) % 24
         self.label_1.setText(f"Período de {start_hour:02d}:00 a {end_hour:02d}:00")
-        # Actualizar la barra de horas
+        # Actualizar la barra de horas sin disparar recursivamente valueChanged
+        self.barra_horas.blockSignals(True)
         self.barra_horas.setValue(self.segmento_actual)
+        self.barra_horas.blockSignals(False)
         self.actualizar_hora(0)  # Inicializar la hora
 
     def graficar_segmento(self):
@@ -332,15 +350,18 @@ class Marcar_evento(QWidget):
         posicion = self.mapa_estaciones['CODIGO'].index(nombre_estacion)
         factor_diezmado_plt = int(self.mapa_estaciones['DIEZMADO_PLT'][posicion])
         self.stream=diezmar_senal(self.stream,factor_diezmado_plt)
-        # Restaurar el segmento y la posición del scrollbar
-        self.segmento_actual = self.posicion_segmento_guardada
+        # Calcular el número máximo de segmentos antes de graficar para no truncar segmento_actual
+        duracion_total = self.stream[0].stats.endtime - self.stream[0].stats.starttime
+        max_segmentos = max(1, int(np.ceil(duracion_total / (2 * 3600))))
+        self.barra_horas.blockSignals(True)
+        self.barra_horas.setRange(0, max_segmentos - 1)
+        self.segmento_actual = max(0, min(self.posicion_segmento_guardada, max_segmentos - 1))
+        self.barra_horas.setValue(self.segmento_actual)
+        self.barra_horas.blockSignals(False)
         # Cargar las marcas almacenadas
         self.cargar_marcas()
         # Procesar y graficar el segmento actual
-        self.procesar_y_graficar()  # Asegúrate de que esta llamada recalcule todo necesario para el gráfico
-        # Calcular el número máximo de segmentos después de cargar el gráfico
-        max_segmentos = int(self.stream[0].stats.npts / (self.stream[0].stats.sampling_rate * 2 * 3600))
-        self.barra_horas.setRange(0, max_segmentos - 1)
+        self.procesar_y_graficar()
         # Restaurar la posición del scrollbar después de redibujar el gráfico
         self.scroll_area.horizontalScrollBar().setValue(self.posicion_scroll_guardada)
         # Aplicar las marcas al gráfico después de cargar y procesar el nuevo archivo

@@ -1370,3 +1370,445 @@ def extraccion_dato(dato,separador):
     return(salida)
 
 
+# ==============================================================================
+# PRECARGA LOCAL DEL PC (MEMORIA DEL EQUIPO) Y CONTROL DE TURNOS / RESPONSABLES
+# ==============================================================================
+import json
+import socket
+
+TURNOS_PARCIALES_DIA = ("00:00 - 12:00", "12:00 - 18:00", "18:00 - 24:00")
+OPCION_TODO_EL_DIA = "Todo el día"
+OPCIONES_PERIODO_DIARIO = TURNOS_PARCIALES_DIA + (OPCION_TODO_EL_DIA,)
+
+
+def obtener_ruta_config_local_pc() -> str:
+    """
+    Retorna la ruta absoluta del archivo local de configuración del PC
+    (`config_local_pc.json` en la raíz del proyecto).
+    Nota: `*.json` está excluido en `.gitignore`, por lo que este archivo
+    pertenece únicamente al PC donde se trabaja y nunca se sincroniza con el repositorio.
+    """
+    raiz = ruta_proyecto if ruta_proyecto else os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    return os.path.abspath(os.path.join(raiz, "config_local_pc.json"))
+
+
+def cargar_config_local_pc() -> dict:
+    """
+    Carga la configuración de precarga local del PC desde `config_local_pc.json`.
+    Si el archivo no existe o está corrupto, lo crea automáticamente con valores
+    por defecto seguros para el equipo actual.
+    """
+    ruta_cfg = obtener_ruta_config_local_pc()
+    try:
+        nombre_pc = socket.gethostname()
+    except Exception:
+        nombre_pc = "PC_RSA"
+
+    config_defecto = {
+        "nombre_equipo": nombre_pc,
+        "responsable_habitual": "RSA",
+        "directorio_trabajo": "G:/Mi unidad/DIA/",
+        "ultimo_dia_procesado": datetime.today().strftime("%Y-%m-%d"),
+        "ultimo_periodo_procesado": "00:00 - 12:00",
+        "pc_autorizado_config": True,
+        "pc_administrador": False,
+        "usuarios_autorizados_config": ["RSA"],
+        "clave_administrador": "RSA",
+        "actualizado_en": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    if os.path.isfile(ruta_cfg):
+        try:
+            with open(ruta_cfg, "r", encoding="utf-8") as f_cfg:
+                leido = json.load(f_cfg)
+            if isinstance(leido, dict):
+                for k, v in config_defecto.items():
+                    leido.setdefault(k, v)
+                if not isinstance(leido.get("usuarios_autorizados_config"), list):
+                    leido["usuarios_autorizados_config"] = ["RSA"]
+                if "RSA" not in leido["usuarios_autorizados_config"]:
+                    leido["usuarios_autorizados_config"].insert(0, "RSA")
+                return leido
+        except Exception as e:
+            print(f"Aviso leyendo config_local_pc.json ({e}). Se restaurará configuración base.")
+
+    guardar_config_local_pc(config_defecto)
+    return config_defecto
+
+
+def guardar_config_local_pc(datos_nuevos: dict) -> dict:
+    """
+    Actualiza y persiste en disco el archivo `config_local_pc.json` con la memoria
+    operativa del PC actual (responsable habitual, directorio de trabajo, último
+    día y período procesado, y permisos de administración de configuración).
+    """
+    ruta_cfg = obtener_ruta_config_local_pc()
+    actual = {}
+    if os.path.isfile(ruta_cfg):
+        try:
+            with open(ruta_cfg, "r", encoding="utf-8") as f_cfg:
+                leido = json.load(f_cfg)
+                if isinstance(leido, dict):
+                    actual.update(leido)
+        except Exception:
+            pass
+
+    try:
+        nombre_pc = socket.gethostname()
+    except Exception:
+        nombre_pc = "PC_RSA"
+
+    actual.setdefault("nombre_equipo", nombre_pc)
+    actual.setdefault("responsable_habitual", "RSA")
+    actual.setdefault("directorio_trabajo", "G:/Mi unidad/DIA/")
+    actual.setdefault("ultimo_dia_procesado", datetime.today().strftime("%Y-%m-%d"))
+    actual.setdefault("ultimo_periodo_procesado", "00:00 - 12:00")
+    actual.setdefault("pc_autorizado_config", True)
+    actual.setdefault("usuarios_autorizados_config", ["RSA"])
+    actual.setdefault("clave_administrador", "RSA")
+
+    if isinstance(datos_nuevos, dict):
+        for k, v in datos_nuevos.items():
+            if v is not None:
+                actual[k] = v
+
+    if not isinstance(actual.get("usuarios_autorizados_config"), list):
+        actual["usuarios_autorizados_config"] = ["RSA"]
+    if "RSA" not in actual["usuarios_autorizados_config"]:
+        actual["usuarios_autorizados_config"].insert(0, "RSA")
+
+    actual["actualizado_en"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        with open(ruta_cfg, "w", encoding="utf-8") as f_cfg:
+            json.dump(actual, f_cfg, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Aviso guardando config_local_pc.json: {e}")
+
+    return actual
+
+
+def obtener_responsables_turnos_dia(archivo_dia: str) -> list:
+    """
+    Inspecciona el archivo de tiempos/responsables del día (`<AAMMDD>_tiempos.csv` o
+    `<AAMMDD>_resp.csv`) y retorna una lista de 3 diccionarios correspondientes a los
+    3 turnos del día:
+      0 -> '00:00 - 12:00' (12H)
+      1 -> '12:00 - 18:00' (18H)
+      2 -> '18:00 - 24:00' (24H)
+    Cada elemento contiene:
+      {'indice': i, 'periodo': str, 'etiqueta': '12H'|'18H'|'24H',
+       'responsable': str, 'total': int, 'procesado': bool}
+    """
+    turnos_info = [
+        {"indice": 0, "periodo": "00:00 - 12:00", "etiqueta": "12H", "responsable": "", "total": 0, "procesado": False},
+        {"indice": 1, "periodo": "12:00 - 18:00", "etiqueta": "18H", "responsable": "", "total": 0, "procesado": False},
+        {"indice": 2, "periodo": "18:00 - 24:00", "etiqueta": "24H", "responsable": "", "total": 0, "procesado": False},
+    ]
+    if not archivo_dia:
+        return turnos_info
+
+    try:
+        directorios = obtener_directorios(archivo_dia)
+    except Exception:
+        return turnos_info
+
+    ruta_tiempos = directorios.get("archivo_tiempos", "")
+    ruta_resp = directorios.get("archivo_responsables", "")
+    ruta_csv = directorios.get("archivo_csv", "")
+    ruta_aux = directorios.get("archivo_auxiliar", "")
+
+    filas = []
+    if ruta_tiempos and os.path.isfile(ruta_tiempos):
+        try:
+            filas = lectura_archivo(ruta_tiempos) or []
+        except Exception:
+            filas = []
+
+    if not filas and ruta_resp and os.path.isfile(ruta_resp):
+        try:
+            filas_r = lectura_archivo(ruta_resp) or []
+            filas = [f for f in filas_r if f and str(f[0]).strip().upper() != "RESPONSABLE"]
+        except Exception:
+            filas = []
+
+    mapa_etiquetas = {"12": 0, "12H": 0, "18": 1, "18H": 1, "24": 2, "24H": 2}
+    for pos, fila in enumerate(filas):
+        if not fila or len(fila) < 3:
+            continue
+        etiq_fila = str(fila[1]).strip().upper()
+        idx_t = mapa_etiquetas.get(etiq_fila)
+        if idx_t is None and len(filas) == 3 and pos < 3:
+            idx_t = pos
+        if idx_t is None:
+            continue
+        resp_str = str(fila[0]).strip()
+        try:
+            tot_val = int(float(str(fila[2]).strip()))
+        except (ValueError, TypeError):
+            tot_val = 0
+        procesado = tot_val > 0
+        turnos_info[idx_t]["responsable"] = resp_str if procesado else (resp_str if resp_str not in ("", "RSA") else "")
+        turnos_info[idx_t]["total"] = tot_val
+        turnos_info[idx_t]["procesado"] = procesado
+
+    # Conteo directo y exacto de eventos por período desde archivo_csv (o archivo_auxiliar)
+    ruta_eventos = ruta_csv if (ruta_csv and os.path.isfile(ruta_csv)) else (
+        ruta_aux if (ruta_aux and os.path.isfile(ruta_aux)) else ""
+    )
+    if ruta_eventos:
+        try:
+            filas_ev = lectura_archivo(ruta_eventos) or []
+            conteos_ev = [0, 0, 0]
+            resp_ev = ["", "", ""]
+            for fila_ev in filas_ev:
+                if not fila_ev or len(fila_ev) < 2:
+                    continue
+                texto_fecha = str(fila_ev[1]).strip()
+                try:
+                    if "_" in texto_fecha:
+                        hora = int(texto_fecha.split("_", 1)[1][:2])
+                    elif len(texto_fecha) >= 10 and texto_fecha[:8].isdigit():
+                        hora = int(texto_fecha[8:10])
+                    else:
+                        continue
+                except (ValueError, IndexError):
+                    continue
+                if not (0 <= hora <= 23):
+                    continue
+                idx_p = 0 if hora < 12 else (1 if hora < 18 else 2)
+                conteos_ev[idx_p] += 1
+                if len(fila_ev) > 6:
+                    r_ev = str(fila_ev[6]).strip()
+                    if r_ev not in ("", "RSA") and not resp_ev[idx_p]:
+                        resp_ev[idx_p] = r_ev
+
+            for idx_p in (0, 1, 2):
+                turnos_info[idx_p]["total"] = conteos_ev[idx_p]
+                turnos_info[idx_p]["procesado"] = conteos_ev[idx_p] > 0
+                if conteos_ev[idx_p] > 0 and turnos_info[idx_p]["responsable"] in ("", "RSA"):
+                    if resp_ev[idx_p]:
+                        turnos_info[idx_p]["responsable"] = resp_ev[idx_p]
+                    elif not turnos_info[idx_p]["responsable"]:
+                        turnos_info[idx_p]["responsable"] = "RSA"
+        except Exception:
+            pass
+
+    return turnos_info
+
+
+def sugerir_siguiente_periodo_dia(archivo_dia: str, es_fecha_hoy: bool = True) -> str:
+    """
+    Determina automáticamente el período sugerido al seleccionar una fecha en `Inicio`:
+    - Si la fecha seleccionada NO corresponde al día actual (`not es_fecha_hoy`),
+      selecciona por defecto `'Todo el día'` (ideal para procesar días anteriores/fines
+      de semana completos o realizar revisiones integrales).
+    - Si la fecha seleccionada ES el día actual (`es_fecha_hoy`), busca el siguiente
+      período pendiente del día en orden cronológico (`00:00 - 12:00` -> `12:00 - 18:00`
+      -> `18:00 - 24:00`). Si los 3 turnos ya cuentan con eventos extraídos/procesados,
+      sugiere `'Todo el día'`.
+    """
+    if not es_fecha_hoy:
+        return OPCION_TODO_EL_DIA
+
+    turnos = obtener_responsables_turnos_dia(archivo_dia)
+    for info in turnos:
+        if not info["procesado"]:
+            return info["periodo"]
+    return OPCION_TODO_EL_DIA
+
+
+def validar_permiso_responsable_turno(
+    archivo_dia: str,
+    responsable_activo: str,
+    periodo_seleccionado: str,
+) -> tuple:
+    """
+    Verifica si `responsable_activo` tiene autorización para abrir/trabajar en el
+    `periodo_seleccionado` del día `archivo_dia`:
+    - El usuario maestro `'RSA'` tiene acceso total a todos los turnos y a `'Todo el día'`.
+    - Un operador individual puede trabajar libremente en:
+        a) Turnos aún no procesados (`total == 0`) o asignados a `'RSA'`.
+        b) Turnos cuyo responsable registrado en el día sea él mismo.
+    - Si el turno (o alguno de los turnos ya procesados cuando se escoge `'Todo el día'`)
+      pertenece a otro responsable distinto, se bloquea el acceso indicando que debe
+      seleccionarse el usuario `'RSA'` para acceder a todos los turnos.
+
+    Retorna:
+        tuple[bool, str]: `(permitido, mensaje_detalle)`
+    """
+    resp_act = (responsable_activo or "").strip()
+    if resp_act == "RSA":
+        return True, ""
+
+    turnos = obtener_responsables_turnos_dia(archivo_dia)
+    per_sel = (periodo_seleccionado or "").strip()
+
+    if per_sel in TURNOS_PARCIALES_DIA:
+        idx = TURNOS_PARCIALES_DIA.index(per_sel)
+        info = turnos[idx]
+        resp_turno = info["responsable"]
+        if info["procesado"] and resp_turno not in ("", "RSA", resp_act):
+            msg = (
+                f"El período {per_sel} ({info['etiqueta']}) ya se encuentra registrado "
+                f"a nombre del responsable «{resp_turno}» ({info['total']} eventos).\n\n"
+                f"El usuario actual («{resp_act}») solo puede trabajar en sus propios "
+                f"períodos o en turnos libres.\n"
+                f"Para acceder o revisar períodos de todos los responsables, seleccione "
+                f"el usuario «RSA»."
+            )
+            return False, msg
+        return True, ""
+
+    # Caso 'Todo el día' (o período general en modo diario)
+    conflictos = []
+    for info in turnos:
+        resp_turno = info["responsable"]
+        if info["procesado"] and resp_turno not in ("", "RSA", resp_act):
+            conflictos.append(f"• {info['periodo']} ({info['etiqueta']}): {resp_turno} ({info['total']} ev.)")
+
+    if conflictos:
+        detalle_conf = "\n".join(conflictos)
+        msg = (
+            f"No es posible abrir «{OPCION_TODO_EL_DIA}» con el responsable «{resp_act}» "
+            f"porque existen turnos de este día asignados a otro(s) responsable(s):\n\n"
+            f"{detalle_conf}\n\n"
+            f"Seleccione su turno específico o cambie el responsable a «RSA» para "
+            f"acceder a todo el día."
+        )
+        return False, msg
+
+    return True, ""
+
+
+def verificar_permiso_configuracion_pc(usuario_actual: str = None) -> tuple:
+    """
+    Verifica si el equipo actual y el usuario activo cuentan con autorización del
+    Administrador (`RSA`) en `config_local_pc.json` para modificar los archivos
+    maestros de configuración del sistema (`estaciones.csv`, `analogicas.csv`,
+    `digitales.csv`, `responsables.csv`, `mapas.csv`).
+
+    Retorna:
+        tuple[bool, str, str, str]: `(autorizado, usuario_resuelto, nombre_pc, mensaje)`
+    """
+    cfg = cargar_config_local_pc()
+    nombre_pc = str(cfg.get("nombre_equipo") or "PC_RSA").strip()
+    usuario = str(usuario_actual or cfg.get("responsable_habitual") or "RSA").strip()
+    pc_autorizado = bool(cfg.get("pc_autorizado_config", True))
+    autorizados = [str(u).strip() for u in (cfg.get("usuarios_autorizados_config") or ["RSA"])]
+
+    if not pc_autorizado:
+        return (
+            False,
+            usuario,
+            nombre_pc,
+            f"El equipo «{nombre_pc}» tiene deshabilitada la edición de configuración en config_local_pc.json.",
+        )
+
+    if usuario == "RSA":
+        return True, usuario, nombre_pc, f"Administrador «RSA» activo en equipo «{nombre_pc}»."
+
+    if usuario in autorizados:
+        return (
+            True,
+            usuario,
+            nombre_pc,
+            f"Usuario «{usuario}» autorizado por el Administrador en el equipo «{nombre_pc}».",
+        )
+
+    return (
+        False,
+        usuario,
+        nombre_pc,
+        f"El usuario activo en este PC («{usuario}») no tiene permisos de edición de configuración.\n"
+        f"Solo el Administrador («RSA») o un usuario autorizado por el Administrador en este equipo "
+        f"pueden guardar cambios en los archivos maestros.",
+    )
+
+
+def verificar_permiso_respaldo_pc() -> tuple:
+    """
+    Verifica en `config_local_pc.json` si el equipo actual corresponde a la
+    computadora del Administrador (`pc_administrador: true`) para habilitar el
+    módulo de respaldo y restauración del programa.
+
+    Retorna:
+        tuple[bool, str, str]: `(autorizado, nombre_pc, mensaje)`
+    """
+    cfg = cargar_config_local_pc()
+    nombre_pc = str(cfg.get("nombre_equipo") or "PC_RSA").strip()
+    es_pc_admin = bool(cfg.get("pc_administrador", False))
+    pc_autorizado = bool(cfg.get("pc_autorizado_config", True))
+
+    if es_pc_admin and pc_autorizado:
+        return True, nombre_pc, f"Equipo administrador autorizado («{nombre_pc}»)."
+
+    return (
+        False,
+        nombre_pc,
+        f"El equipo «{nombre_pc}» no está configurado como computadora del Administrador "
+        f"en config_local_pc.json (pc_administrador: false).",
+    )
+
+
+def escritura_segura_configuracion(ruta_destino: str, filas: list) -> str:
+    """
+    Guarda de forma atómica y con respaldo automático (`datos/respaldos_config/`)
+    cualquier archivo maestro de configuración (`estaciones.csv`, `analogicas.csv`,
+    `digitales.csv`, `responsables.csv`, `mapas.csv`):
+      1. Crea una copia de respaldo con marca de tiempo antes de tocar el archivo original.
+      2. Escribe primero en un archivo temporal `.tmp` en la misma carpeta y verifica
+         que se haya escrito íntegramente.
+      3. Reemplaza atómicamente el archivo destino mediante `os.replace`.
+    """
+    import shutil
+
+    if not filas:
+        raise ValueError("No se puede guardar un archivo de configuración vacío.")
+
+    ruta_abs = os.path.abspath(ruta_destino)
+    carpeta_padre = os.path.dirname(ruta_abs)
+    nombre_arch = os.path.basename(ruta_abs)
+    stem_arch = Path(ruta_abs).stem
+
+    # 1. Crear respaldo previo si el archivo ya existe
+    ruta_respaldo = ""
+    if os.path.isfile(ruta_abs):
+        raiz = ruta_proyecto if ruta_proyecto else os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        dir_respaldos = os.path.join(raiz, "datos", "respaldos_config")
+        os.makedirs(dir_respaldos, exist_ok=True)
+        sello = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ruta_respaldo = os.path.join(dir_respaldos, f"{stem_arch}_{sello}.bak.csv")
+        shutil.copy2(ruta_abs, ruta_respaldo)
+
+        # Conservar únicamente los últimos 20 respaldos de ese archivo para orden limpio
+        try:
+            existentes = sorted(
+                [
+                    os.path.join(dir_respaldos, f)
+                    for f in os.listdir(dir_respaldos)
+                    if f.startswith(f"{stem_arch}_") and f.endswith(".bak.csv")
+                ]
+            )
+            while len(existentes) > 20:
+                antiguo = existentes.pop(0)
+                try:
+                    os.remove(antiguo)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # 2. Escribir primero en archivo temporal (.tmp) y verificar integridad
+    os.makedirs(carpeta_padre, exist_ok=True)
+    ruta_tmp = ruta_abs + ".tmp"
+    escritura_archivo(ruta_tmp, filas)
+    if not os.path.isfile(ruta_tmp) or os.path.getsize(ruta_tmp) == 0:
+        raise IOError(f"Fallo de verificación al escribir archivo temporal: {ruta_tmp}")
+
+    # 3. Reemplazo atómico
+    os.replace(ruta_tmp, ruta_abs)
+    return ruta_respaldo
+
+
+

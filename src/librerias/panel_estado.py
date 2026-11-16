@@ -235,8 +235,17 @@ class PanelEstadoJornada(QWidget):
                     if len(ev) > 1:
                         try:
                             hora_txt = str(ev[1]).strip()
-                            if len(hora_txt) >= 2 and hora_txt[:2].isdigit():
+                            hora_ev = None
+                            if "_" in hora_txt:
+                                parte_hora = hora_txt.split("_", 1)[1]
+                                if len(parte_hora) >= 2 and parte_hora[:2].isdigit():
+                                    hora_ev = int(parte_hora[:2])
+                            elif len(hora_txt) >= 10 and hora_txt[:8].isdigit() and hora_txt[8:10].isdigit():
+                                hora_ev = int(hora_txt[8:10])
+                            elif len(hora_txt) <= 8 and len(hora_txt) >= 2 and hora_txt[:2].isdigit():
                                 hora_ev = int(hora_txt[:2])
+
+                            if hora_ev is not None:
                                 if 0 <= hora_ev < 12:
                                     conteo_turno1 += 1
                                 elif 12 <= hora_ev < 18:
