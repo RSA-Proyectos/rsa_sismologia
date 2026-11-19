@@ -77,6 +77,8 @@ Antes de modificar o depurar cualquier script Python, el agente **DEBE** buscar 
 | [`src/subprogramas/procesamiento_integrado.py`](file:///c:/proyectos/rsa_sismologia/src/subprogramas/procesamiento_integrado.py) | [`procesamiento_integrado_contx.md`](file:///c:/proyectos/rsa_sismologia/src/subprogramas/procesamiento_integrado_contx.md) |
 | [`src/subprogramas/reporte_acumulado.py`](file:///c:/proyectos/rsa_sismologia/src/subprogramas/reporte_acumulado.py) | [`reporte_acumulado_contx.md`](file:///c:/proyectos/rsa_sismologia/src/subprogramas/reporte_acumulado_contx.md) |
 | [`src/subprogramas/reporte_diario.py`](file:///c:/proyectos/rsa_sismologia/src/subprogramas/reporte_diario.py) | [`reporte_diario_contx.md`](file:///c:/proyectos/rsa_sismologia/src/subprogramas/reporte_diario_contx.md) |
+| [`pruebas/import nidaqmx.py`](file:///c:/proyectos/rsa_sismologia/pruebas/import%20nidaqmx.py) | [`import nidaqmx_contx.md`](file:///c:/proyectos/rsa_sismologia/pruebas/import%20nidaqmx_contx.md) |
+| [`pruebas/adquisicion_galgas_potenciometros.py`](file:///c:/proyectos/rsa_sismologia/pruebas/adquisicion_galgas_potenciometros.py) | [`adquisicion_galgas_potenciometros_contx.md`](file:///c:/proyectos/rsa_sismologia/pruebas/adquisicion_galgas_potenciometros_contx.md) |
 
 > [!IMPORTANT]
 > Los archivos `_contx.md` prevalecen sobre suposiciones del agente. Si hay discrepancia entre el código actual y la descripción del contexto, el agente debe priorizar la funcionalidad real documentada y proponer correcciones conservadoras.

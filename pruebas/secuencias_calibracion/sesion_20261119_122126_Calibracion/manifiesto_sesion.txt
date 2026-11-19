@@ -1,0 +1,24 @@
+================================================================================
+MANIFIESTO METROLÓGICO DE SESIÓN DE CALIBRACIÓN — PRENSA 100 TONELADAS
+================================================================================
+ID de Sesión:              sesion_20261119_122126_Calibracion
+Etiqueta / Descripción:    Calibracion
+Fecha y Hora de Apertura:  2026-11-19 12:21:26
+Directorio de Almacenaje:  C:\proyectos\rsa_sismologia\pruebas\secuencias_calibracion\sesion_20261119_122126_Calibracion
+--------------------------------------------------------------------------------
+CONFIGURACIÓN DE INSTRUMENTACIÓN Y ADQUISICIÓN:
+  • Hardware DAQ:          National Instruments NI-USB-6210 (16 bits)
+  • Canal Principal:       ai0 (DIFERENCIAL — Pines AI 0 / AI 8)
+  • Canal Secundario:      ai1 (DIFERENCIAL — Pines AI 1 / AI 9)
+  • Canales Auxiliares:    ai2 a ai7 (SINGLE-ENDED — Referenciados a AI GND)
+  • Preamplificador:       INA114AP [G = 1 + (50 kΩ / Rg)]
+  • Tensión Excitación:    Vexc = 8.000 V (Puente de Wheatstone)
+  • Resistencia Rg Ref.:   Rg = 1000.0 Ω (Ganancia G = 51.00)
+  • Ref. Fondo de Escala:  100.0 Ton = 4.8500 V
+  • Sensibilidad Nominal:  20.6186 Ton/V
+  • Frecuencia Fs:         1000 Hz
+  • Ventana Osciloscopio:  0.50 s por bloque promediado
+  • Ventana Multímetro:    2.00 s por bloque integrado
+================================================================================
+REGISTRO CRONOLÓGICO DE ENSAYOS Y ARCHIVOS DE ESTA SESIÓN:
+--------------------------------------------------------------------------------
