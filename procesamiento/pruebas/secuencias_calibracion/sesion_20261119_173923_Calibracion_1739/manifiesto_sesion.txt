@@ -1,0 +1,27 @@
+================================================================================
+MANIFIESTO METROLÓGICO DE SESIÓN DE CALIBRACIÓN — PRENSA 100 TONELADAS
+================================================================================
+ID de Sesión:              sesion_20261119_173923_Calibracion_1739
+Etiqueta / Descripción:    Calibracion_1739
+Fecha y Hora de Apertura:  2026-11-19 17:39:23
+Directorio de Almacenaje:  C:\Proyectos\rsa_sismologia\pruebas\secuencias_calibracion\sesion_20261119_173923_Calibracion_1739
+--------------------------------------------------------------------------------
+CONFIGURACIÓN DE INSTRUMENTACIÓN Y ADQUISICIÓN:
+  • Hardware DAQ:          National Instruments NI-USB-6210 (16 bits)
+  • Canal Principal:       ai0 (DIFERENCIAL — Pines AI 0 / AI 8)
+  • Canal Secundario:      ai1 (DIFERENCIAL — Pines AI 1 / AI 9)
+  • Canales Auxiliares:    ai2 a ai7 (SINGLE-ENDED — Referenciados a AI GND)
+  • Preamplificador:       INA114AP [G = 1 + (50 kΩ / Rg)]
+  • Tensión Excitación:    Vexc = 8.000 V (Puente de Wheatstone)
+  • Resistencia Rg Ref.:   Rg = 1000.0 Ω (Ganancia G = 51.00)
+  • Ref. Fondo de Escala:  100.0 Ton = 4.8500 V
+  • Sensibilidad Nominal:  20.6186 Ton/V
+  • Frecuencia Fs:         5000 Hz
+  • Ventana Osciloscopio:  0.50 s por bloque promediado
+  • Ventana Multímetro:    2.00 s por bloque integrado
+================================================================================
+REGISTRO CRONOLÓGICO DE ENSAYOS Y ARCHIVOS DE ESTA SESIÓN:
+--------------------------------------------------------------------------------
+• Ensayo #001 | Tipo: AjusteP1       | Hora: 17:50:28 | Duración:  564.0 s | V_medio: -10.6572 V (-219.74 Ton)
+    ├── Secuencia Calibración (Promedios): ajuste_cero_001_20261119_174104_calibracion_promedios_0.5s.csv (560 bloques)
+    └── Secuencia Muestreo Real (Fs = 5000 Hz): ajuste_cero_001_20261119_174104_muestreo_real_fs5000Hz.csv (1397500 muestras)

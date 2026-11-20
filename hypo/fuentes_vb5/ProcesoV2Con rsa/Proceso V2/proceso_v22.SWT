@@ -1,0 +1,99 @@
+[Setup Wizard Template]
+TemplateDate=30/08/00 04:56:25 p.m.
+
+[Seleccione proyecto y opciones]
+txtProjFile=C:\Mis Documentos\Gustavo\Programas VB\Proceso V2\proceso.Vbp
+chkProjRebuild=1
+optBldSetup=Verdadero
+chkIncludeDEP=0
+optInternet=False
+optDEPOnly=False
+
+[Método de distribución]
+optFloppyTarg=False
+optSingleDirTarg=Verdadero
+optMultDirTarg=False
+
+[Un único directorio]
+cboFloppyDrives=0
+cboFloppyDriveSize=0
+txtDirTarget=D:\Mis documentos\Marco\Nuevo IASPEI y Proceso\Instaladores Proceso\
+
+[Paquete de Internet]
+optRemoteSite=Verdadero
+optLocalSite=False
+txtLocalSite=
+
+[Acceso a datos]
+chkUseJet=1
+chkUseODBC=0
+Isam0=Jet 2.x
+Isam1=
+Jet 2.x=False
+
+[Componentes ActiveX]
+File1=
+
+[Dependencias]
+File1="C:\WINDOWS\SYSTEM\TABCTL32.OCX",Verdadero,32764
+File2="C:\WINDOWS\SYSTEM\DBLIST32.OCX",Verdadero,32764
+File3="C:\WINDOWS\SYSTEM\DBGRID32.OCX",Verdadero,32764
+File4="C:\ARCHIVOS DE PROGRAMA\ARCHIVOS COMUNES\MICROSOFT SHARED\DAO\DAO350.DLL",Verdadero,32763
+File5="C:\WINDOWS\SYSTEM\CWDAQ.OCX",Verdadero,32764
+File6="C:\WINDOWS\SYSTEM\CWANALY.OCX",Verdadero,32764
+File7="C:\WINDOWS\SYSTEM\CWUI.OCX",Verdadero,32764
+File8="C:\WINDOWS\SYSTEM\RICHTX32.OCX",Verdadero,32764
+File9="C:\WINDOWS\SYSTEM\COMDLG32.OCX",Verdadero,32764
+File10=
+
+[Aplicación ActiveX compartida]
+optDeployApplication=Verdadero
+optDeployShared=False
+optRemoteServer1=Verdadero
+optRemoteServer0=False
+
+[Resumen del archivo]
+File1="C:\WINDOWS\SYSTEM\VB5ES.dll",Verdadero,"$(WinSysPath)",,Verdadero
+File2="C:\WINDOWS\SYSTEM\MSVBVM50.dll",Verdadero,"$(WinSysPathSysFile)",$(DLLSelfRegister),False
+File3="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\StdOle2.tlb",Verdadero,"$(WinSysPathSysFile)",$(TLBRegister),False
+File4="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\OleAut32.dll",Verdadero,"$(WinSysPathSysFile)",$(DLLSelfRegister),False
+File5="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\OlePro32.dll",Verdadero,"$(WinSysPathSysFile)",$(DLLSelfRegister),False
+File6="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\AsycFilt.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File7="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\Ctl3d32.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File8="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\ComCat.dll",Verdadero,"$(WinSysPathSysFile)",$(DLLSelfRegister),False
+File9="C:\WINDOWS\SYSTEM\TABCTL32.OCX",Verdadero,"$(WinSysPath)",$(DLLSelfRegister),Verdadero
+File10="C:\WINDOWS\SYSTEM\TabCtES.dll",Verdadero,"$(WinSysPath)",,Verdadero
+File11="C:\WINDOWS\SYSTEM\DBLIST32.OCX",Verdadero,"$(WinSysPath)",$(DLLSelfRegister),Verdadero
+File12="C:\WINDOWS\SYSTEM\DBLstES.dll",Verdadero,"$(WinSysPath)",,Verdadero
+File13="C:\WINDOWS\SYSTEM\DBGRID32.OCX",Verdadero,"$(WinSysPath)",$(DLLSelfRegister),Verdadero
+File14="C:\WINDOWS\SYSTEM\DBGrdES.dll",Verdadero,"$(WinSysPath)",,Verdadero
+File15="C:\ARCHIVOS DE PROGRAMA\ARCHIVOS COMUNES\MICROSOFT SHARED\DAO\DAO350.DLL",Verdadero,"$(MSDAOPath)",$(DLLSelfRegister),Verdadero
+File16="C:\WINDOWS\SYSTEM\MSJtEr35.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File17="C:\WINDOWS\SYSTEM\MSJInt35.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File18="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\MSVCRT40.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File19="C:\WINDOWS\SYSTEM\CWDAQ.OCX",Verdadero,"$(WinSysPath)",$(DLLSelfRegister),Verdadero
+File20="C:\WINDOWS\SYSTEM\CWANALY.OCX",Verdadero,"$(WinSysPath)",$(DLLSelfRegister),Verdadero
+File21="C:\WINDOWS\SYSTEM\CWUI.OCX",Verdadero,"$(WinSysPath)",$(DLLSelfRegister),Verdadero
+File22="C:\WINDOWS\SYSTEM\RICHTX32.OCX",Verdadero,"$(WinSysPath)",$(DLLSelfRegister),Verdadero
+File23="C:\WINDOWS\SYSTEM\COMDLG32.OCX",Verdadero,"$(WinSysPath)",$(DLLSelfRegister),Verdadero
+File24="C:\WINDOWS\SYSTEM\CmDlgES.dll",Verdadero,"$(WinSysPath)",,Verdadero
+File25="C:\WINDOWS\SYSTEM\MSJet35.dll",Verdadero,"$(WinSysPathSysFile)",$(DLLSelfRegister),False
+File26="C:\WINDOWS\SYSTEM\VBAJet32.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File27="C:\WINDOWS\SYSTEM\VB5DB.dll",Verdadero,"$(WinSysPath)",,Verdadero
+File28="C:\WINDOWS\SYSTEM\MSRD2x35.dll",Verdadero,"$(WinSysPathSysFile)",$(DLLSelfRegister),False
+File29="C:\WINDOWS\SYSTEM\MsRepl35.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File30="C:\WINDOWS\SYSTEM\ODBCJt32.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File31="C:\WINDOWS\SYSTEM\ODBCJI32.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File32="C:\WINDOWS\SYSTEM\ODBCTL32.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File33="C:\Mis Documentos\Gustavo\Programas VB\Proceso V2\proceso_v2.exe",Verdadero,"$(AppPath)",,False
+File34="C:\WINDOWS\SYSTEM\RchTxES.dll",Verdadero,"$(WinSysPath)",,Verdadero
+File35="C:\Iaspei\Editor\WORDPAD.EXE",Verdadero,"C:\Iaspei\Editor\",,False
+File36="C:\Iaspei\FastHypo\CONVERT1.EXE",Verdadero,"C:\Iaspei\FastHypo\",,False
+File37="C:\Iaspei\FastHypo\FAST.EXE",Verdadero,"C:\Iaspei\FastHypo\",,False
+File38="C:\Iaspei\FastHypo\fastbat.bat",Verdadero,"C:\Iaspei\FastHypo\",,False
+File39="C:\Iaspei\FastHypo\FHSTA.DAT",Verdadero,"C:\Iaspei\FastHypo\",,False
+File40="C:\Iaspei\FastHypo\FHVELOC.DAT",Verdadero,"C:\Iaspei\FastHypo\",,False
+File41="C:\Iaspei\FastHypo\FPONG.EXE",Verdadero,"C:\Iaspei\FastHypo\",,False
+File42="C:\Iaspei\FastHypo\fpongbat.bat",Verdadero,"C:\Iaspei\FastHypo\",,False
+File43="C:\Iaspei\FastHypo\conv1bat.bat",Verdadero,"C:\Iaspei\FastHypo\",,False
+File44="C:\Iaspei\Mag2000.txt",Verdadero,"C:\iaspei",,False

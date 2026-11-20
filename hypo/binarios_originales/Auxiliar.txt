@@ -1,0 +1,8 @@
+CALCULO DE LA MAGNITUD
+
+sta           dist          Coda          Mag
+LABR          102.50        28.60         3.7
+CUSH          108.70        00.00         NMG
+CHAI          098.40        00.00         NMG
+
+Promedio de las Magnitudes: 3.7

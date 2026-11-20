@@ -1,0 +1,76 @@
+[Setup Wizard Template]
+TemplateDate=30/08/00 04:30:50 p.m.
+
+[Seleccione proyecto y opciones]
+txtProjFile=C:\Mis documentos\Gustavo\Programas VB\Pro IASPEI\Proceso IASPEI.vbp
+chkProjRebuild=1
+optBldSetup=Verdadero
+chkIncludeDEP=0
+optInternet=False
+optDEPOnly=False
+
+[Método de distribución]
+optFloppyTarg=False
+optSingleDirTarg=Verdadero
+optMultDirTarg=False
+
+[Un único directorio]
+cboFloppyDrives=0
+cboFloppyDriveSize=0
+txtDirTarget=D:\Mis documentos\Marco\Nuevo IASPEI y Proceso\Instaladores IASPEI\
+
+[Paquete de Internet]
+optRemoteSite=Verdadero
+optLocalSite=False
+txtLocalSite=
+
+[Acceso a datos]
+chkUseJet=1
+chkUseODBC=0
+Isam0=
+
+[Componentes ActiveX]
+File1=
+
+[Dependencias]
+File1="C:\WINDOWS\SYSTEM\TABCTL32.OCX",Verdadero,32764
+File2=
+
+[Aplicación ActiveX compartida]
+optDeployApplication=Verdadero
+optDeployShared=False
+optRemoteServer1=Verdadero
+optRemoteServer0=False
+
+[Resumen del archivo]
+File1="C:\WINDOWS\SYSTEM\VB5ES.dll",Verdadero,"$(WinSysPath)",,Verdadero
+File2="C:\WINDOWS\SYSTEM\MSVBVM50.dll",Verdadero,"$(WinSysPathSysFile)",$(DLLSelfRegister),False
+File3="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\StdOle2.tlb",Verdadero,"$(WinSysPathSysFile)",$(TLBRegister),False
+File4="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\OleAut32.dll",Verdadero,"$(WinSysPathSysFile)",$(DLLSelfRegister),False
+File5="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\OlePro32.dll",Verdadero,"$(WinSysPathSysFile)",$(DLLSelfRegister),False
+File6="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\AsycFilt.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File7="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\Ctl3d32.dll",Verdadero,"$(WinSysPathSysFile)",,False
+File8="C:\Archivos de programa\DevStudio\VB\SETUPKIT\KITFIL32\SYS32\ComCat.dll",Verdadero,"$(WinSysPathSysFile)",$(DLLSelfRegister),False
+File9="C:\WINDOWS\SYSTEM\TABCTL32.OCX",Verdadero,"$(WinSysPath)",$(DLLSelfRegister),Verdadero
+File10="C:\WINDOWS\SYSTEM\TabCtES.dll",Verdadero,"$(WinSysPath)",,Verdadero
+File11="C:\Mis documentos\Gustavo\Programas VB\Pro IASPEI\Proceso IASPEI.exe",Verdadero,"$(AppPath)",,False
+File12="C:\Iaspei\Editor\WORDPAD.EXE",Verdadero,"C:\Iaspei\Editor\",,False
+File13="C:\Iaspei\FastHypo\conv1bat.bat",Verdadero,"C:\Iaspei\FastHypo\",,False
+File14="C:\Iaspei\FastHypo\fastbat.bat",Verdadero,"C:\Iaspei\FastHypo\",,False
+File15="C:\Iaspei\FastHypo\fpongbat.bat",Verdadero,"C:\Iaspei\FastHypo\",,False
+File16="C:\Iaspei\FastHypo\CONVERT1.EXE",Verdadero,"C:\Iaspei\FastHypo\",,False
+File17="C:\Iaspei\FastHypo\FAST.EXE",Verdadero,"C:\Iaspei\FastHypo\",,False
+File18="C:\Iaspei\FastHypo\FHSTA.DAT",Verdadero,"C:\Iaspei\FastHypo\",,False
+File19="C:\Iaspei\FastHypo\FHVELOC.DAT",Verdadero,"C:\Iaspei\FastHypo\",,False
+File20="C:\Iaspei\FastHypo\FPONG.EXE",Verdadero,"C:\Iaspei\FastHypo\",,False
+File21="C:\Iaspei\Pcsuds\AUTOPICK.EXE",Verdadero,"C:\Iaspei\Pcsuds\",,False
+File22="C:\Iaspei\Pcsuds\DEMUX.EXE",Verdadero,"C:\Iaspei\Pcsuds\",,False
+File23="C:\Iaspei\Pcsuds\IRIG.EXE",Verdadero,"C:\Iaspei\Pcsuds\",,False
+File24="C:\Iaspei\Pcsuds\SUDSPICK.EXE",Verdadero,"C:\Iaspei\Pcsuds\",,False
+File25="C:\Iaspei\Pcsuds\XPLAYH.EXE",Verdadero,"C:\Iaspei\Pcsuds\",,False
+File26="C:\Iaspei\Pcsuds\XPLAYV.EXE",Verdadero,"C:\Iaspei\Pcsuds\",,False
+File27="C:\Iaspei\Pcsuds\Xtrhy711.exe",Verdadero,"C:\Iaspei\Pcsuds\",,False
+File28="C:\Iaspei\Registro\reg",Verdadero,"C:\Iaspei\Registro\",,False
+File29="C:\Iaspei\Pcsuds\xtrhy712.exe",Verdadero,"C:\Iaspei\Pcsuds\",,False
+File30="C:\Iaspei\Pcsuds\FIXNAME.EXE",Verdadero,"C:\Iaspei\Pcsuds\",,False
+File31="C:\Iaspei\Mag2000.txt",Verdadero,"C:\Iaspei",,False
