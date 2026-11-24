@@ -9,9 +9,14 @@ from PyQt5 import uic
 import os
 import obspy
 
-from librerias.metodos_rsa import parametros_estaciones
-from librerias.metodos_gestion import obtener_directorios
-from librerias.metodos_sismicos import diezmar_senal
+try:
+    from librerias.metodos_rsa import parametros_estaciones
+    from librerias.metodos_gestion import obtener_directorios
+    from librerias.metodos_sismicos import diezmar_senal
+except ImportError:
+    from metodos_rsa import parametros_estaciones
+    from metodos_gestion import obtener_directorios
+    from metodos_sismicos import diezmar_senal
 import json
 from PyQt5.QtCore import pyqtSignal
 class CustomScrollArea(QScrollArea):

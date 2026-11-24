@@ -56,7 +56,18 @@ def leer_mseed(archivo, tipo, t_inicio=None, t_final=None):
                 trCanal[i] = stLeido
 
         except FileNotFoundError:
-            pass
+            # Fallback a formato de año corto de 2 dígitos (ej. _240505_153312.mseed)
+            dir_base_ev = directorios['Directorio_eventos'] if tipo != 0 else directorios['Directorio_registros']
+            nombreMseed_2d = f"{dir_base_ev}/{nombre_canal[i]}{fecha_.strftime('_%y%m%d_%H%M%S.mseed')}"
+            try:
+                with open(nombreMseed_2d, 'rb'):
+                    if t_inicio_utc and t_final_utc:
+                        stLeido = read(nombreMseed_2d, starttime=t_inicio_utc, endtime=t_final_utc)
+                    else:
+                        stLeido = read(nombreMseed_2d)
+                    trCanal[i] = stLeido
+            except FileNotFoundError:
+                pass
  
     return trCanal
 

@@ -1533,9 +1533,18 @@ class VentanaPrincipal(QMainWindow):
                 'S': os.path.join(carpeta_destino, f"{base_lp}S"),
             }
 
-        dlg = DialogoLocalizarFastHypo(evento_p, rutas_salida=rutas_salida, parent=self)
-        if dlg.exec_() == DialogoLocalizarFastHypo.Accepted:
-            self.refrescar_estilo_evento_actual()
+        try:
+            dlg = DialogoLocalizarFastHypo(evento_p, rutas_salida=rutas_salida, parent=self)
+            if dlg.exec_() == DialogoLocalizarFastHypo.Accepted:
+                self.refrescar_estilo_evento_actual()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(
+                self,
+                "Error en Localización FASTHYPO",
+                f"Ocurrió un error al abrir o ejecutar la localización FASTHYPO:\n{e}",
+            )
 
 
 class VentanaGrafico(QMainWindow):

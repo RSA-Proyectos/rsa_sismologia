@@ -263,13 +263,14 @@ def impresion_reporte_sismo(lienzo_archivo, evento_generar, canales, trCanal,ban
             dibujo_seniales.drawOn(lienzo, xpos+5, ypos+150)
 
 #Dibujo de la ubicacion en el mapa grande circulos concentricos
-        coor_x=ancho*(longitud-longitud_min)/(longitud_max-longitud_min)+xpos #coor_x=ancho*(longitud-longitud_min)/(longitud_max-longitud_min)+xpos
-        coor_y=alto*(latitud-latitud_min)/(latitud_max-latitud_min)+ypos #coor_y=alto*(latitud-latitud_min)/(latitud_max-latitud_min)+ypos   
-        lienzo.drawString(coor_x-15,coor_y-30,str(evento_generar[reporte][IDX_MAGNITUD])+evento_generar[reporte][IDX_UNIDAD_MAG])
-        dibujo_sismo = Drawing(10,10)
-        for valores in [(11,0.005),(8.5,0.2),(6,0.8 ),(3.5,1.4),(1,0.5)]:
-            dibujo_sismo.add(Circle(0,0,valores[0],strokeColor = colors.red,strokeWidth = valores[1],fillOpacity=0))
-        dibujo_sismo.drawOn(lienzo, coor_x, coor_y)
+        if abs(latitud) > 0.001 or abs(longitud) > 0.001:
+            coor_x=ancho*(longitud-longitud_min)/(longitud_max-longitud_min)+xpos #coor_x=ancho*(longitud-longitud_min)/(longitud_max-longitud_min)+xpos
+            coor_y=alto*(latitud-latitud_min)/(latitud_max-latitud_min)+ypos #coor_y=alto*(latitud-latitud_min)/(latitud_max-latitud_min)+ypos   
+            lienzo.drawString(coor_x-15,coor_y-30,str(evento_generar[reporte][IDX_MAGNITUD])+evento_generar[reporte][IDX_UNIDAD_MAG])
+            dibujo_sismo = Drawing(10,10)
+            for valores in [(11,0.005),(8.5,0.2),(6,0.8 ),(3.5,1.4),(1,0.5)]:
+                dibujo_sismo.add(Circle(0,0,valores[0],strokeColor = colors.red,strokeWidth = valores[1],fillOpacity=0))
+            dibujo_sismo.drawOn(lienzo, coor_x, coor_y)
 
 #Dibujo de los intentos en procesamiento
 
@@ -492,7 +493,10 @@ def hoja_seniales_(directorio_trabajo,lienzo,evento_catalogo,evento_generar,even
         indice_responsable=2
     else:
         indice_responsable=3
-    responsable_evento=responsables[indice_responsable][0]        
+    if responsables and len(responsables) > indice_responsable and len(responsables[indice_responsable]) > 0:
+        responsable_evento = responsables[indice_responsable][0]
+    else:
+        responsable_evento = "Operador de Turno"        
 
 # ==== XML (para RMS y marcas)
     # Búsqueda por archivo .sis (ruta), única por sismo real incluso en el mismo minuto
@@ -668,17 +672,24 @@ def hoja_seniales_(directorio_trabajo,lienzo,evento_catalogo,evento_generar,even
                 tiempo_p=fase_p-tiempo_inicial
                 tiempo_s=fase_s-tiempo_inicial
                 tiempo_c=tiempo_p+coda_
-                valores=(7,8,10,13,15,16,17)
-                for j in valores:
-                    texto2=texto2+codigo_evento[j]+estaciones_vector[ubicacion][j]+unidades_evento[j]
-                texto3=''
-                try:
-                    tiempo_p_s=round(float(estaciones_vector[ubicacion][13])-float(estaciones_vector[ubicacion][10]),2)
-                    if tiempo_p_s>0:
-                        texto3="Tiempo P-S:"+str(tiempo_p_s)+"s"
-                    else:
-                        texto3="Tiempo P-S: No hay marca S"
-                except ValueError:
+                if mostrar_fases:
+                    valores=(7,8,10,13,15,16,17)
+                    for j in valores:
+                        texto2=texto2+codigo_evento[j]+estaciones_vector[ubicacion][j]+unidades_evento[j]
+                    texto3=''
+                    try:
+                        tiempo_p_s=round(float(estaciones_vector[ubicacion][13])-float(estaciones_vector[ubicacion][10]),2)
+                        if tiempo_p_s>0:
+                            texto3="Tiempo P-S:"+str(tiempo_p_s)+"s"
+                        else:
+                            texto3="Tiempo P-S: No hay marca S"
+                    except ValueError:
+                        texto3=''
+                else:
+                    # Modo reporte limpio por estaciones (sin marcas internas de arribo ni tiempo P-S)
+                    valores=(7,8)
+                    for j in valores:
+                        texto2=texto2+codigo_evento[j]+estaciones_vector[ubicacion][j]+unidades_evento[j]
                     texto3=''
 
 #####################################################

@@ -102,8 +102,10 @@ La elección de `REGION` en `cmbx_zona` (`datos/mapas/mapas.csv`) define tanto e
 1. **Amplitudes Máximas por Estación y Tipo de Evento (`estaciones()`, líneas 594–665)**:
    - Filtra en el rango `dateEdit_ini` – `dateEdit_fin` los eventos cuyo tipo coincida con `Cmb_bx_tipo_evento` (`Ruido`, `FF`, `FC`, `TELESISMO`, `SISMO`, `INDEFINIDO`, `Evento_local`, `CONTROL`, `TODOS`) y donde la estación escogida en `Cmb_bx_estacion` tenga marca de aporte (`eventos[indice_ + 3][5] == '1'`).
    - Lee el archivo `.mseed` de esa estación, aplica `correccion(st[j], factor)` con el `FACTOR_MUL` de la estación, extrae la amplitud máxima absoluta de cada canal y guarda el archivo `reportes/otros/<CODIGO_ESTACION>_<TIPO_EVENTO>_rep.csv`.
-2. **Selector Múltiple de Estaciones (`abrir_ventana_estaciones()` / `ejecutar_con_estaciones()`, líneas 82–175 y 996–1036)**:
-   - Abre `VentanaEstaciones` (filtrable por `SISMICOS` y `ACELEROGRAFICOS`), y al pulsar `Ejecutar` busca para cada sismo de `self.catalogo` cuáles de las estaciones seleccionadas tienen registro (`evento[idx_estacion + 3] != "-"`), armando la lista `self.reporte` con los nombres de archivos `.mseed` involucrados por evento.
+2. **Selector Múltiple de Estaciones y Generación de Reporte PDF (`abrir_ventana_estaciones()` / `ejecutar_con_estaciones()` / `generar_reporte_pdf_estaciones()`)**:
+   - Abre `VentanaEstaciones` con casillas dinámicas para cualquier número de estaciones (filtrables por `SISMICOS` y `ACELEROGRAFICOS` y botón `Marcar/Desmarcar todos`).
+   - Botón `Consultar .mseed`: busca para cada sismo de `self.catalogo` cuáles de las estaciones seleccionadas tienen registro (`evento[idx_estacion + 3] != "-"`), armando la lista `self.reporte` en bitácora.
+   - Botón `📄 Generar Reporte PDF` (`generar_reporte_pdf_estaciones()`): conecta con `imprimir_reporte_especial_estaciones()` de `rsa_pdf_catalogo.py` para emitir un informe PDF en ReportLab con los eventos que coincidan con `Cmb_bx_tipo_evento` y que hayan sido registrados por las estaciones marcadas. Cada evento incluye su ficha hipocentral limpia, hojas de señales sismológicas sin marcas internas (sin P/S/Coda, sin zoom) y hojas acelerográficas apaisadas completas para acelerógrafos seleccionados.
 
 ### 3.3. Salidas Generadas por `Guardar_()`
 En la carpeta `<directorio_reporte>/<REGION>/`:
@@ -182,6 +184,24 @@ En la carpeta `<directorio_reporte>/<REGION>/`:
    * **Semana ISO (`tipo_forzado=2`)**: `DIA/<AAAA_fin>/reportes/semanal/semana<WW>/<Región>/Semana <WW>_pdf1.pdf`.
    * **Período / Rango de Fechas (`tipo_forzado=3`)**: Unificado siempre en `DIA/<AAAA_fin>/reportes/periodos/<AAAA_MM_DD_ini>_<AAAA_MM_DD_fin>/<Región>/<dd_mm_aaaa a dd_mm_aaaa>_pdf1.pdf` (sin importar si el rango está dentro del mismo mes, cruza meses o abarca varios años).
 
+5. **Sección 3 - Reporte Especial por Estaciones y Filtrado Cuantitativo por Aceleración Mínima (`VentanaEstaciones` + `imprimir_reporte_especial_estaciones`)**:
+   * **Interfaz "Menos es Más"**: Ventana emergente simplificada y limpia, sin botones redundantes. Contiene:
+     * Checkbox y campo para **Aceleración mínima** (desactivado por defecto; valor orientativo `0.98 cm/s² ≈ 0.001 g · 9.80 cm/s² ≈ 0.01 g`).
+     * Filtro visual `Mostrar Sísmicos` / `Mostrar Acelerográficos`.
+     * Lista de checkboxes con estaciones habilitadas.
+     * Cuatro botones claros: `Marcar todos`, `Desmarcar todos`, `📄 Generar Reporte PDF` y `Salir`.
+   * **Filtrado Estricto de Aceleraciones (`umbral_pga_min`)**:
+     * En cada sismo analizado, se evalúan las trazas reales corregidas de los acelerógrafos (`correccion`). Si la aceleración pico real (PGA) es menor al límite establecido (ej. $< 0.98 \text{ cm/s}^2$), la estación y el sismo quedan **estrictamente descartados**.
+     * Ni el mapa de portada, ni la lista tabular, ni las hojas de acelerogramas ni el archivo `_aceleraciones.csv` contendrán registros inferiores al umbral.
+   * **Soporte Completo para Redes Externas (IGEPN/USGS) y Eventos Regionales (FF/FC)**:
+     * En _cumple_filtro_red, cuando el tipo de evento es FF, FC o TELESISMO, se permite la inclusión de fuentes distintas a RSA para no descartar eventos de otras redes.
+     * Se respalda self.eventos_respaldo en Respaldar_catalogo() y se transmite junto con catalogo_respaldo a imprimir_reporte_especial_estaciones, garantizando que eventos con registro instrumental pero sin solución hipocentral local RSA no sean descartados.
+   * **Presentación ReportLab de alta calidad**:
+     * **Página 1 (Portada)**: Membrete oficial, mapa sismológico centrado con epicentros graduados y caja de simbología estándar.
+     * **Página 2+ (Catálogo Tabular)**: Lista completa de sismos con columnas estructuradas (N°, SIS, Fecha UTC, Hora UTC, Latitud, Longitud, Profundidad, Magnitud en azul para $\ge 4.0$, Fuente y Estaciones Aportantes).
+     * **Páginas de Detalle**: Ficha hipocentral individual, señales sísmicas limpias (sin marcas internas de picado P/S/Coda ni zoom) y acelerogramas apaisados de 3 componentes.
+     * **Generación complementaria CSV**: Exporta automáticamente `<Reporte>_aceleraciones.csv` con los máximos de los eventos que superaron el límite.
+
 ---
 
 ## 5. Checklist de Regresión
@@ -191,3 +211,4 @@ En la carpeta `<directorio_reporte>/<REGION>/`:
 - [x] `cmbx_n_estaciones` filtra el árbol XML exportado y el catálogo/mapa PDF (`ck_nest_catalogo`) conservando solo sismos con al menos `N` estaciones registradas (para mecanismos focales).
 - [x] Al cambiar `cmbx_zona`, `cmbx_mapa`, `cmbx_magnitud`, `cmbx_n_estaciones` o los controles de profundidad/magnitud, `Cargar_catalogo()` restaura la copia íntegra desde `*_respaldo`, actualiza la ruta destino en la bitácora y rehabilita `Btn_guardar`.
 - [x] Los reportes por rango de fechas (`rb_periodo`) se guardan siempre de manera unificada bajo `DIA/<AAAA_fin>/reportes/periodos/<AAAA_MM_DD_ini>_<AAAA_MM_DD_fin>/<Región>/`.
+- [x] En la Sección 3, `VentanaEstaciones` despliega las aceleraciones máximas reales (PGA) y conteos de aportes, con filtro automático por umbral y generación simultánea de PDF (portada con mapa + lista tabular) y CSV de aceleraciones.

@@ -78,6 +78,7 @@ graph TD
 | `lectura_eventos` | `(archivo) -> (str, list)` | Lee marcas temporales desde `marcas.json` (preferente) o `puntos.csv` (legado). |
 | `parametros_estaciones` | `() -> dict` | Carga metadatos técnicos y geográficos desde `datos/estaciones.csv`. |
 | `obtener_directorios` | `(archivo) -> dict` | Construye el mapa completo de rutas del repositorio para un día sísmico. |
+| `obtencion_hora` | `(archivo) -> UTCDateTime` | Extrae con precisión la fecha y hora UTC desde nombres `.sis`, `.mseed` o cadenas de timestamp (`AAMMDDhhmmss` o `AAAAMMDDhhmmss`). |
 | `cargar_parametros` | `(archivo) -> dict` | Carga el archivo de configuración JSON asociado a la sesión. |
 | `denegar_escritura` | `(archivo)` | Marca un archivo como de sólo lectura en el sistema de archivos de Windows. |
 | `habilitar_escritura` | `(archivo)` | Restaura permisos de escritura sobre un archivo protegido. |
@@ -93,6 +94,8 @@ graph TD
    * Prevalencia de `marcas.json` estructurado con timestamps ISO-8601 UTC; soporte de retrocompatibilidad con la interpolación de coordenadas de `puntos.csv` de Surfer.
 3. **Resiliencia de Codificación (Multi-Encoding)**:
    * `lectura_archivo()` detecta fallos `UnicodeDecodeError` e itera sobre un conjunto seguro de codecs (`utf-8`, `latin-1`, `cp1252`).
+4. **Extracción Canónica de Fecha/Hora en `obtencion_hora()`**:
+   * Descompone de manera determinista los prefijos de fecha `AAMMDD` o `AAAAMMDD` desde archivos `.sis` y `.mseed` evitando fallos de desfase de año hacia fallbacks duros.
 
 ---
 

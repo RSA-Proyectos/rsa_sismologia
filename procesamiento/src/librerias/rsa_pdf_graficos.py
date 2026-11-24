@@ -630,16 +630,21 @@ def mapa_configuracion(mapa_numero, detalle):
 
 
 def escalado(numero):
-    escala=1/(10**int(math.log10(1/numero)))
-    if escala<1:
-        escala=escala/10
-    if numero<escala:
-        escala=escala/10
-    if numero/escala<2:
-        escala=escala/2
-    if numero/escala>5:
-        escala=escala*2
-    return escala
+    if numero is None or numero <= 0:
+        return 1.0
+    try:
+        escala = 1 / (10 ** int(math.log10(1 / numero)))
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return 1.0
+    if escala < 1:
+        escala = escala / 10
+    if numero < escala:
+        escala = escala / 10
+    if escala > 0 and numero / escala < 2:
+        escala = escala / 2
+    if escala > 0 and numero / escala > 5:
+        escala = escala * 2
+    return max(escala, 1e-6)
         
 
 def grafico_cobertura(lienzo, evento, coordenadas, tamanio, directorio_trabajo):
@@ -733,11 +738,11 @@ def imprimir_acelerograma(tamanio,trcanal,componente,factor,bandera):
         # Cálculo del espectro de aceleración
         f_max=30
         delta=trcanal[0].stats.delta
-        delta_f=1/(N*delta)
-        N_valores=int(.1/delta_f)
-        N_max=int(N//(muestreo/f_max))
+        delta_f=1/(N*delta) if (N*delta) > 0 else 1.0
+        N_valores=max(1, int(.1/delta_f))
+        N_max=max(N_valores + 1, int(N//(muestreo/f_max))) if muestreo > 0 else N
         frec_= [i*delta_f for i in range(N_max)]
-        frec_log=[math.log10(val) for val in frec_[N_valores:]]
+        frec_log=[math.log10(val) if val > 0 else -1.0 for val in frec_[N_valores:]]
         y_f = scipy.fft.fft(aceleracion)
         y_f_=(1./N)*2* np.abs(y_f[:N_max]).astype(float)
 

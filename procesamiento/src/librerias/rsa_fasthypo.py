@@ -163,6 +163,24 @@ def mapear_polaridad_fasthypo(polaridad: str) -> str:
 
 
 def leer_modelos_velocidad(ruta_fhveloc: Path) -> Dict[str, List[CapaVelocidad]]:
+    if not ruta_fhveloc.exists():
+        candidatos = [
+            Path(ruta_fhveloc),
+            Path(ruta_datos_fasthypo) / "FHVELOC.DAT",
+            Path(ruta_proyecto) / "datos" / "fasthypo" / "FHVELOC.DAT",
+            Path(ruta_proyecto).parent / "datos" / "fasthypo" / "FHVELOC.DAT",
+            Path(ruta_proyecto).parent / "hypo" / "binarios_originales" / "FHVELOC.DAT",
+            Path(r"C:\proyectos\rsa_sismologia\datos\fasthypo\FHVELOC.DAT"),
+            Path(r"C:\proyectos\rsa_sismologia\hypo\binarios_originales\FHVELOC.DAT"),
+        ]
+        for c in candidatos:
+            if c.exists():
+                ruta_fhveloc = c
+                break
+        else:
+            print(f"Advertencia: No se encontró FHVELOC.DAT en {ruta_fhveloc} ni en rutas candidatas.")
+            return {}
+
     lineas = ruta_fhveloc.read_bytes().decode("latin-1", errors="replace").splitlines()
     modelos: Dict[str, List[CapaVelocidad]] = {}
     i = 0
@@ -194,44 +212,116 @@ def leer_modelos_velocidad(ruta_fhveloc: Path) -> Dict[str, List[CapaVelocidad]]
 
 
 def leer_estaciones(ruta_fhsta: Path) -> Dict[str, EstacionFH]:
-    lineas = ruta_fhsta.read_bytes().decode("latin-1", errors="replace").splitlines()
+    if not ruta_fhsta.exists():
+        candidatos = [
+            Path(ruta_fhsta),
+            Path(ruta_datos_fasthypo) / "FHSTA.DAT",
+            Path(ruta_proyecto) / "datos" / "fasthypo" / "FHSTA.DAT",
+            Path(ruta_proyecto).parent / "datos" / "fasthypo" / "FHSTA.DAT",
+            Path(ruta_proyecto).parent / "hypo" / "binarios_originales" / "FHSTA.DAT",
+            Path(r"C:\proyectos\rsa_sismologia\datos\fasthypo\FHSTA.DAT"),
+            Path(r"C:\proyectos\rsa_sismologia\hypo\binarios_originales\FHSTA.DAT"),
+        ]
+        for c in candidatos:
+            if c.exists():
+                ruta_fhsta = c
+                break
+        else:
+            print(f"Advertencia: No se encontró FHSTA.DAT en {ruta_fhsta} ni en rutas candidatas.")
+
     estaciones: Dict[str, EstacionFH] = {}
-    for linea in lineas:
-        if len(linea.strip()) < 24:
-            continue
-        pad = linea.ljust(65)
-        codigo = pad[0:4].strip()
-        if not codigo:
-            continue
-        try:
-            lat = float(pad[5:7].strip()) + float(pad[8:13].strip()) / 60.0
-            if pad[13:14].strip().lower() == "s":
-                lat = -lat
-            lon = float(pad[15:17].strip()) + float(pad[18:23].strip()) / 60.0
-            if pad[23:24].strip().lower() == "w":
-                lon = -lon
-            modelo_id = int(pad[33:34].strip()) if pad[33:34].strip().isdigit() else 1
-            corr_p = float(pad[34:39].strip()) if pad[34:39].strip() else 0.0
-            corr_s = float(pad[40:45].strip()) if pad[40:45].strip() else 0.0
-            desc = pad[45:].strip()
-        except ValueError:
-            continue
-        estaciones[codigo.upper()] = EstacionFH(
-            codigo=codigo.upper(),
-            latitud=lat,
-            longitud=lon,
-            modelo_id=modelo_id,
-            corr_p=corr_p,
-            corr_s=corr_s,
-            descripcion=desc,
-        )
+    if ruta_fhsta.exists():
+        lineas = ruta_fhsta.read_bytes().decode("latin-1", errors="replace").splitlines()
+        for linea in lineas:
+            if len(linea.strip()) < 24:
+                continue
+            pad = linea.ljust(65)
+            codigo = pad[0:4].strip()
+            if not codigo:
+                continue
+            try:
+                lat = float(pad[5:7].strip()) + float(pad[8:13].strip()) / 60.0
+                if pad[13:14].strip().lower() == "s":
+                    lat = -lat
+                lon = float(pad[15:17].strip()) + float(pad[18:23].strip()) / 60.0
+                if pad[23:24].strip().lower() == "w":
+                    lon = -lon
+                modelo_id = int(pad[33:34].strip()) if pad[33:34].strip().isdigit() else 1
+                corr_p = float(pad[34:39].strip()) if pad[34:39].strip() else 0.0
+                corr_s = float(pad[40:45].strip()) if pad[40:45].strip() else 0.0
+                desc = pad[45:].strip()
+            except ValueError:
+                continue
+            estaciones[codigo.upper()] = EstacionFH(
+                codigo=codigo.upper(),
+                latitud=lat,
+                longitud=lon,
+                modelo_id=modelo_id,
+                corr_p=corr_p,
+                corr_s=corr_s,
+                descripcion=desc,
+            )
+
+    # Suplementar estaciones activas desde estaciones.csv si no están ya en FHSTA.DAT
+    for ruta_csv in (
+        Path(ruta_proyecto) / "datos" / "estaciones.csv",
+        Path(ruta_proyecto).parent / "datos" / "estaciones.csv",
+        Path(r"C:\proyectos\rsa_sismologia\datos\estaciones.csv"),
+    ):
+        if ruta_csv.exists():
+            try:
+                import csv
+                with open(ruta_csv, "r", encoding="latin-1", errors="replace") as f_csv:
+                    lector = csv.DictReader(f_csv, delimiter=";")
+                    for fila in lector:
+                        cod = fila.get("CODIGO(1)", "").strip().upper()
+                        if not cod or cod in estaciones:
+                            continue
+                        try:
+                            lat = float(fila.get("LATITUD(13)", 0.0))
+                            lon = float(fila.get("LONGITUD(12)", 0.0))
+                            if lat == 0.0 and lon == 0.0:
+                                continue
+                            nom = fila.get("NOMBRE(0)", cod).strip()
+                            estaciones[cod] = EstacionFH(
+                                codigo=cod,
+                                latitud=lat,
+                                longitud=lon,
+                                modelo_id=1,
+                                corr_p=0.0,
+                                corr_s=0.0,
+                                descripcion=nom,
+                            )
+                        except (ValueError, TypeError):
+                            continue
+                break
+            except Exception as e_csv:
+                print(f"Aviso cargando estaciones.csv suplementario en rsa_fasthypo: {e_csv}")
+
     return estaciones
 
 
 def leer_coeficientes_magnitud(ruta_mag2000: Path) -> Dict[str, Tuple[float, float, float]]:
     coefs: Dict[str, Tuple[float, float, float]] = {}
     if not ruta_mag2000.exists():
-        return coefs
+        candidatos = [
+            Path(ruta_mag2000),
+            Path(ruta_datos_fasthypo) / "Mag2000.txt",
+            Path(ruta_proyecto) / "datos" / "fasthypo" / "Mag2000.txt",
+            Path(ruta_proyecto) / "datos" / "Mag2000.txt",
+            Path(ruta_proyecto).parent / "datos" / "fasthypo" / "Mag2000.txt",
+            Path(ruta_proyecto).parent / "datos" / "Mag2000.txt",
+            Path(ruta_proyecto).parent / "hypo" / "fuentes_vb5" / "ProcesoV2Con rsa" / "Iaspe-ArchDConfig" / "Mag2000.txt",
+            Path(r"C:\proyectos\rsa_sismologia\datos\fasthypo\Mag2000.txt"),
+            Path(r"C:\proyectos\rsa_sismologia\datos\Mag2000.txt"),
+        ]
+        for c in candidatos:
+            if c.exists():
+                ruta_mag2000 = c
+                break
+        else:
+            return coefs
+
     for linea in ruta_mag2000.read_bytes().decode("latin-1", errors="replace").splitlines():
         if len(linea.strip()) < 10:
             continue
@@ -501,9 +591,17 @@ def calcular_magnitud_coda(
 ) -> ResultadoLocalizacion:
     mags, validas = [], []
     tabla = coeficientes_estacion or {}
+    # Coeficientes regionales estándar por defecto para la Red RSA (HUAJ/GUAL/LABR)
+    COEFS_DEFECTO = (2.131382, 0.975177, 0.001410)
+
     for est in resultado.estaciones:
         sta = est.estacion.upper()
         b1, c1, c2 = tabla.get(sta, (0.0, 0.0, 0.0))
+        # Si la estación tiene coda válida pero coeficientes en cero o no registrados,
+        # aplicar coeficientes regionales estándar para garantizar el cálculo de magnitud
+        if (b1 == 0.0 and c1 == 0.0 and c2 == 0.0) and (est.coda and est.coda > 0.0):
+            b1, c1, c2 = COEFS_DEFECTO
+
         if (b1 == 0.0 and c1 == 0.0 and c2 == 0.0) or not est.coda or est.coda <= 0.0:
             mags.append((est.estacion, est.dist_km, est.coda if est.coda > 0 else 0.0, None))
         else:
@@ -670,6 +768,21 @@ class DialogoLocalizarFastHypo(QDialog):
         self._ax_mapa_emergente = None
         self._canvas_mapa_emergente: Optional[FigureCanvasQTAgg] = None
 
+        if not self.modelos:
+            QMessageBox.warning(
+                self,
+                "Modelos de Velocidad Faltantes",
+                "No se pudieron cargar los modelos de velocidad (FHVELOC.DAT).\n"
+                "Verifique que el archivo exista en datos/fasthypo/ o hypo/binarios_originales/."
+            )
+        if not self.estaciones_cat:
+            QMessageBox.warning(
+                self,
+                "Catálogo de Estaciones Faltante",
+                "No se pudieron cargar las coordenadas de estaciones (FHSTA.DAT / estaciones.csv).\n"
+                "Verifique que exista FHSTA.DAT en datos/fasthypo/ o estaciones.csv en datos/."
+            )
+
         self._construir_ui()
         self._actualizar_mapa_ecuador(None)
 
@@ -678,23 +791,32 @@ class DialogoLocalizarFastHypo(QDialog):
         poligonos: List[List[Tuple[float, float]]] = []
         if pyshp is None:
             return poligonos
-        for nombre in ("ECU provincias.shp", "ecuador.shp", "ecuadorPoly.shp"):
-            ruta_shp = os.path.join(ruta_datos_gis, nombre)
-            if not os.path.exists(ruta_shp):
+        carpetas_gis = [
+            ruta_datos_gis,
+            os.path.join(ruta_proyecto, "datos", "GIS"),
+            os.path.join(str(Path(ruta_proyecto).parent), "datos", "GIS"),
+            r"C:\proyectos\rsa_sismologia\datos\GIS",
+        ]
+        for carpeta in carpetas_gis:
+            if not os.path.isdir(carpeta):
                 continue
-            try:
-                sf = pyshp.Reader(ruta_shp)
-                for shp in sf.shapes():
-                    pts = shp.points
-                    parts = list(shp.parts) + [len(pts)]
-                    for k in range(len(parts) - 1):
-                        anillo = pts[parts[k] : parts[k + 1]]
-                        if len(anillo) >= 3:
-                            poligonos.append(anillo)
-                if poligonos:
-                    break
-            except Exception as e:
-                print(f"Aviso cargando mapa {nombre}: {e}")
+            for nombre in ("ECU provincias.shp", "ecuador.shp", "ecuadorPoly.shp"):
+                ruta_shp = os.path.join(carpeta, nombre)
+                if not os.path.exists(ruta_shp):
+                    continue
+                try:
+                    sf = pyshp.Reader(ruta_shp)
+                    for shp in sf.shapes():
+                        pts = shp.points
+                        parts = list(shp.parts) + [len(pts)]
+                        for k in range(len(parts) - 1):
+                            anillo = pts[parts[k] : parts[k + 1]]
+                            if len(anillo) >= 3:
+                                poligonos.append(anillo)
+                    if poligonos:
+                        return poligonos
+                except Exception as e:
+                    print(f"Aviso cargando mapa {nombre} en {carpeta}: {e}")
         return poligonos
 
     def _construir_ui(self) -> None:

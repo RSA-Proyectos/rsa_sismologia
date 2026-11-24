@@ -30,13 +30,14 @@ except Exception:
     leer_csv_shape = None
 
 
-from rsa_io import lectura_resumen,lectura_archivo,escritura_archivo,Guardar_dia
+from rsa_io import lectura_resumen,lectura_archivo,escritura_archivo,Guardar_dia,leer_mseed
 from rsa_dominio import correccion
 from rsa_utilidades import obtener_datos_reporte, generar_directorios_unidades_basicas, actualizar_periodos_emitidos_desde_fecha
 from rsa_pdf_catalogo import (
     reporte_resumen_modos,
     resolver_modo_por_zona,
     obtener_perfil_mapa,
+    imprimir_reporte_especial_estaciones,
     MODO_MAPA_ESPECIAL,
     MODO_PERIODO_FRANJAS,
     MODO_DIARIO_REVISION,
@@ -62,6 +63,7 @@ import copy
 from obspy import read
 import calendar
 import os
+import numpy as np
 from PyQt5.QtCore import pyqtSignal
 IDX_INDICE,IDX_ANIO,IDX_MES,IDX_DIA,IDX_HORA,IDX_MINUTO,IDX_SEGUNDO,\
 IDX_LATITUD,IDX_LONGITUD,IDX_PROFUNDIDAD,IDX_RMS,IDX_E_X,IDX_E_Y,IDX_E_0,\
@@ -92,98 +94,147 @@ MODO_INSTITUCIONAL_DETALLADO  = 6   # M6 – Institucional detallado (solo catá
 MODO_INSTITUCIONAL_RESUMEN    = 7   # M7 – Institucional, sin detalle
 
 class VentanaEstaciones(QtWidgets.QDialog):
+    """
+    Selector simple y directo de estaciones para reporte especial.
+    Permite filtrar por aceleración mínima (PGA) y seleccionar estaciones.
+    """
     def __init__(self, parametros, parent=None):
         super(VentanaEstaciones, self).__init__(parent)
         self.setWindowTitle("Selector de Estaciones")
         self.parametros = parametros
-        self.resize(600, 400)
+        self.resize(550, 480)
 
-        self.layout_principal = QtWidgets.QVBoxLayout(self)
+        layout_principal = QtWidgets.QVBoxLayout(self)
 
-        # Filtros por tipo de sensor
-        self.filtro_sismicos = QtWidgets.QCheckBox("SISMICOS")
-        self.filtro_acelerograficos = QtWidgets.QCheckBox("ACELEROGRAFICOS")
+        # 1. Filtro de aceleración mínima (simple y directo, desactivado por defecto)
+        caja_filtro_acel = QtWidgets.QGroupBox("Filtro por Aceleración Mínima (Opcional)")
+        layout_acel = QtWidgets.QHBoxLayout(caja_filtro_acel)
+
+        self.chk_filtrar_acel = QtWidgets.QCheckBox("Filtrar por aceleración mínima:")
+        self.chk_filtrar_acel.setChecked(False)
+
+        self.spin_umbral = QtWidgets.QDoubleSpinBox()
+        self.spin_umbral.setRange(0.01, 500.0)
+        self.spin_umbral.setValue(0.98) # 0.98 cm/s² ≈ 1 gal ≈ 0.001 g
+        self.spin_umbral.setSingleStep(0.10)
+        self.spin_umbral.setDecimals(2)
+        self.spin_umbral.setSuffix(" cm/s²")
+        self.spin_umbral.setEnabled(False)
+        self.spin_umbral.setToolTip("Solo se incluirán sismos donde los acelerógrafos superen este valor.")
+
+        self.lbl_info_acel = QtWidgets.QLabel("(0.98 cm/s² ≈ 0.001 g · 9.80 cm/s² ≈ 0.01 g)")
+        self.lbl_info_acel.setStyleSheet("color: #666; font-size: 8pt;")
+
+        layout_acel.addWidget(self.chk_filtrar_acel)
+        layout_acel.addWidget(self.spin_umbral)
+        layout_acel.addWidget(self.lbl_info_acel)
+        layout_acel.addStretch()
+        layout_principal.addWidget(caja_filtro_acel)
+
+        # 2. Filtro visual por tipo de sensor
+        filtro_layout = QtWidgets.QHBoxLayout()
+        self.filtro_sismicos = QtWidgets.QCheckBox("Mostrar Sísmicos")
+        self.filtro_acelerograficos = QtWidgets.QCheckBox("Mostrar Acelerográficos")
         self.filtro_sismicos.setChecked(True)
         self.filtro_acelerograficos.setChecked(True)
-
-        filtro_layout = QtWidgets.QHBoxLayout()
         filtro_layout.addWidget(self.filtro_sismicos)
         filtro_layout.addWidget(self.filtro_acelerograficos)
-        self.layout_principal.addLayout(filtro_layout)
+        filtro_layout.addStretch()
+        layout_principal.addLayout(filtro_layout)
 
-        # Área de scroll para checkboxes de estaciones
+        # 3. Lista de estaciones con scroll
         self.scroll_area = QtWidgets.QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_widget = QtWidgets.QWidget()
         self.layout_estaciones = QtWidgets.QVBoxLayout(self.scroll_widget)
-
+        self.layout_estaciones.setSpacing(2)
         self.scroll_area.setWidget(self.scroll_widget)
-        self.layout_principal.addWidget(self.scroll_area)
+        layout_principal.addWidget(self.scroll_area)
 
-        # Botón de marcar/desmarcar
-        self.btn_toggle_seleccion = QtWidgets.QPushButton("Marcar/Desmarcar todos")
-        self.layout_principal.addWidget(self.btn_toggle_seleccion)
-
-        # Botones de acción
+        # 4. Botones simples (menos es más)
         botones_layout = QtWidgets.QHBoxLayout()
-        self.btn_ejecutar = QtWidgets.QPushButton("Ejecutar")
+        self.btn_marcar_todos = QtWidgets.QPushButton("Marcar todos")
+        self.btn_desmarcar_todos = QtWidgets.QPushButton("Desmarcar todos")
+        self.btn_generar_pdf = QtWidgets.QPushButton("📄 Generar Reporte PDF")
+        self.btn_generar_pdf.setStyleSheet(
+            "font-weight: bold; background-color: #0078D7; color: white; padding: 6px 16px; font-size: 10pt;"
+        )
         self.btn_salir = QtWidgets.QPushButton("Salir")
-        botones_layout.addWidget(self.btn_ejecutar)
+
+        botones_layout.addWidget(self.btn_marcar_todos)
+        botones_layout.addWidget(self.btn_desmarcar_todos)
+        botones_layout.addStretch()
+        botones_layout.addWidget(self.btn_generar_pdf)
         botones_layout.addWidget(self.btn_salir)
-        self.layout_principal.addLayout(botones_layout)
+        layout_principal.addLayout(botones_layout)
 
         # Conexiones
+        self.checkboxes_estaciones = []
         self.filtro_sismicos.stateChanged.connect(self.actualizar_estaciones)
         self.filtro_acelerograficos.stateChanged.connect(self.actualizar_estaciones)
-        self.btn_toggle_seleccion.clicked.connect(self.toggle_todos)
+        self.chk_filtrar_acel.stateChanged.connect(self._toggle_spin_umbral)
+        self.btn_marcar_todos.clicked.connect(self.marcar_todos)
+        self.btn_desmarcar_todos.clicked.connect(self.desmarcar_todos)
         self.btn_salir.clicked.connect(self.close)
 
-        self.checkboxes_estaciones = []
         self.actualizar_estaciones()
 
+    def _toggle_spin_umbral(self):
+        self.spin_umbral.setEnabled(self.chk_filtrar_acel.isChecked())
+
     def actualizar_estaciones(self):
-        # Limpiar layout
+        """Puebla la lista de estaciones según los filtros visuales."""
         for i in reversed(range(self.layout_estaciones.count())):
-            widget = self.layout_estaciones.itemAt(i).widget()
+            item = self.layout_estaciones.itemAt(i)
+            widget = item.widget() if item else None
             if widget:
                 widget.setParent(None)
 
         self.checkboxes_estaciones.clear()
 
-        for i in range(len(self.parametros['HAB_CANAL'])):
-            if self.parametros['HAB_CANAL'][i] == "1":
-                sensor = self.parametros['SENSOR'][i]
-                mostrar = False
-                if sensor == "SISMICO" and self.filtro_sismicos.isChecked():
-                    mostrar = True
-                elif sensor == "ACELEROGRAFICO" and self.filtro_acelerograficos.isChecked():
-                    mostrar = True
-                if mostrar:
-                    nombre = self.parametros['NOMBRE'][i]
-                    codigo = self.parametros['CODIGO'][i]
-                    tipo = self.parametros['SENSOR'][i]
-                    checkbox = QtWidgets.QCheckBox(f"{codigo} - {nombre} ({tipo})")
-                    checkbox.setProperty("indice", i)
-                    self.layout_estaciones.addWidget(checkbox)
-                    self.checkboxes_estaciones.append(checkbox)
+        codigos = self.parametros.get('CODIGO', [])
+        nombres = self.parametros.get('NOMBRE', [])
+        sensores = self.parametros.get('SENSOR', [])
+        habs = self.parametros.get('HAB_CANAL', [])
 
-    def toggle_todos(self):
-        """Marca o desmarca todos los checkboxes filtrados"""
-        if not self.checkboxes_estaciones:
-            return
+        ver_sis = self.filtro_sismicos.isChecked()
+        ver_acel = self.filtro_acelerograficos.isChecked()
 
-        # Verificar si hay alguno desmarcado
-        alguno_sin_marcar = any(not cb.isChecked() for cb in self.checkboxes_estaciones)
+        for i in range(len(habs)):
+            if habs[i] == "1":
+                sensor = sensores[i] if i < len(sensores) else "SISMICO"
+                es_acel = (sensor == "ACELEROGRAFICO")
+
+                if es_acel and not ver_acel:
+                    continue
+                if not es_acel and not ver_sis:
+                    continue
+
+                cod = codigos[i] if i < len(codigos) else f"EST_{i}"
+                nom = nombres[i] if i < len(nombres) else ""
+                tipo_str = "ACEL" if es_acel else "SISM"
+
+                cb = QtWidgets.QCheckBox(f"{cod} - {nom}  ({tipo_str})")
+                cb.setProperty("indice", i)
+                self.layout_estaciones.addWidget(cb)
+                self.checkboxes_estaciones.append(cb)
+
+    def marcar_todos(self):
         for cb in self.checkboxes_estaciones:
-            cb.setChecked(alguno_sin_marcar)
+            cb.setChecked(True)
+
+    def desmarcar_todos(self):
+        for cb in self.checkboxes_estaciones:
+            cb.setChecked(False)
 
     def obtener_estaciones_seleccionadas(self):
-        """Devuelve los índices de estaciones seleccionadas"""
-        seleccionadas = []
-        for cb in self.checkboxes_estaciones:
-            if cb.isChecked():
-                seleccionadas.append(cb.property("indice"))
-        return seleccionadas
+        return [cb.property("indice") for cb in self.checkboxes_estaciones if cb.isChecked()]
+
+    def obtener_umbral_aceleracion(self) -> float:
+        """Devuelve el umbral de aceleración en cm/s² si el filtro está activo, o 0.0 si está inactivo."""
+        if self.chk_filtrar_acel.isChecked():
+            return float(self.spin_umbral.value())
+        return 0.0
 
 
 class Reporte_periodo(QMainWindow):
@@ -1418,6 +1469,12 @@ class Reporte_periodo(QMainWindow):
         id_ev = str(fila_cat[IDX_INDICE]).strip()
         es_rsa = (fuente == 'RSA' or (len(id_ev) >= 2 and id_ev.endswith('00')))
 
+        # Para eventos clasificados como FF, FC o TELESISMO (reportados comúnmente por otras redes
+        # como IGEPN/USGS o sin solución local RSA), no restringir por filtro exclusivo de red local:
+        tipo_ev_activo = self.Cmb_bx_tipo_evento.currentText().strip().upper() if hasattr(self, 'Cmb_bx_tipo_evento') else ""
+        if tipo_ev_activo in ('FF', 'FC', 'TELESISMO'):
+            return True
+
         modo_red = self.cmbx_filtro_red.currentIndex() if hasattr(self, 'cmbx_filtro_red') else 0
         if modo_red == 0:     # Solo RSA
             return es_rsa
@@ -1608,6 +1665,8 @@ class Reporte_periodo(QMainWindow):
 
     def Cargar_catalogo(self):
         self.catalogo=copy.deepcopy(self.catalogo_respaldo)
+        if hasattr(self, 'eventos_respaldo'):
+            self.eventos = copy.deepcopy(self.eventos_respaldo)
         self.eventos_reporte=copy.deepcopy(self.eventos_reporte_respaldo)
         self.resumen=copy.deepcopy(self.resumen_respaldo)
         self.reporte_total=copy.deepcopy(self.reporte_total_respaldo)
@@ -1617,6 +1676,7 @@ class Reporte_periodo(QMainWindow):
 
     def Respaldar_catalogo(self):
         self.catalogo_respaldo= copy.deepcopy(self.catalogo)
+        self.eventos_respaldo = copy.deepcopy(self.eventos)
         self.eventos_reporte_respaldo=copy.deepcopy(self.eventos_reporte)
         self.resumen_respaldo=copy.deepcopy(self.resumen)
         self.arbol_respaldo=copy.deepcopy(self.arbol)
@@ -1875,9 +1935,124 @@ class Reporte_periodo(QMainWindow):
             )
 
     def abrir_ventana_estaciones(self):
-        self.ventana_estaciones = VentanaEstaciones(self.parametros)
-        self.ventana_estaciones.btn_ejecutar.clicked.connect(self.ejecutar_con_estaciones)
+        self.ventana_estaciones = VentanaEstaciones(self.parametros, parent=self)
+        self.ventana_estaciones.btn_generar_pdf.clicked.connect(self.generar_reporte_pdf_estaciones)
         self.ventana_estaciones.exec_()
+
+    def generar_reporte_pdf_estaciones(self):
+        estaciones_sel = self.ventana_estaciones.obtener_estaciones_seleccionadas()
+        umbral_pga = self.ventana_estaciones.obtener_umbral_aceleracion()
+
+        if not estaciones_sel:
+            QMessageBox.warning(
+                self.ventana_estaciones,
+                "Sin Estaciones Seleccionadas",
+                "Por favor, marque al menos una estación en los checkboxes."
+            )
+            return
+
+        if not hasattr(self, 'catalogo') or len(self.catalogo) <= 1:
+            QMessageBox.warning(
+                self.ventana_estaciones,
+                "Catálogo Vacío",
+                "No hay un catálogo acumulado cargado para el período. Por favor acumule el catálogo primero."
+            )
+            return
+
+        # Cerrar el diálogo modal
+        self.ventana_estaciones.close()
+        self.estaciones_seleccionadas = estaciones_sel
+
+        tipo_ev = self.Cmb_bx_tipo_evento.currentText().strip()
+        n_est = len(estaciones_sel)
+
+        if self.periodo_reporte.startswith('Período: '):
+            nombre_periodo = self.periodo_reporte[9:].replace('/', '_').strip()
+        else:
+            nombre_periodo = self.periodo_reporte[:10].strip()
+
+        base_rep = str(self.directorio_reporte).rstrip("/\\")
+        dir_salida = os.path.join(base_rep, "reportes_especiales")
+        os.makedirs(dir_salida, exist_ok=True)
+
+        nombre_pdf = f"Reporte_{tipo_ev}_{n_est}estaciones_{nombre_periodo}.pdf"
+        ruta_pdf_completa = os.path.join(dir_salida, nombre_pdf)
+
+        subtitulo = f"{self.periodo_reporte}  |  Tipo de Evento: {tipo_ev}"
+        if umbral_pga > 0:
+            subtitulo += f"  |  Acel. Mínima: {umbral_pga:.2f} cm/s²"
+
+        mapa_idx = self.cmbx_zona.currentIndex() if hasattr(self, 'cmbx_zona') else 1
+        tipo_mapa_idx = self.cmbx_mapa.currentIndex() if hasattr(self, 'cmbx_mapa') else 1
+
+        self._registrar_bitacora(
+            f"⏳ Iniciando generación de Reporte PDF por Estaciones...\n"
+            f"  • Tipo de evento: {tipo_ev}\n"
+            f"  • Estaciones seleccionadas: {n_est}\n"
+            f"  • Filtro de aceleración mínima: {f'{umbral_pga:.2f} cm/s²' if umbral_pga > 0 else 'Desactivado'}\n"
+            f"  • Destino: {nombre_pdf}"
+        )
+        QtWidgets.QApplication.processEvents()
+
+        def callback_progreso(actual, total, sis_id):
+            if actual % 5 == 0 or actual == total:
+                self._registrar_bitacora(f"  -> Procesando sismo {actual}/{total} ({sis_id})...")
+                QtWidgets.QApplication.processEvents()
+
+        # Usar el catálogo acumulado completo (respaldo) si está disponible para no perder
+        # sismos que hayan quedado fuera de la caja local o filtros de la pestaña principal:
+        cat_acumulado = getattr(self, 'catalogo_respaldo', self.catalogo)
+        if not cat_acumulado or len(cat_acumulado) <= 1:
+            cat_acumulado = self.catalogo
+        eventos_acumulados = getattr(self, 'eventos_respaldo', getattr(self, 'eventos', None))
+
+        try:
+            resultado = imprimir_reporte_especial_estaciones(
+                archivo_pdf=ruta_pdf_completa,
+                subtitulo_reporte=subtitulo,
+                catalogo=cat_acumulado,
+                tipo_evento_filtro=tipo_ev,
+                indices_estaciones_seleccionadas=estaciones_sel,
+                directorio_trabajo=self.directorio_trabajo,
+                arbol=self.arbol,
+                mapa_=mapa_idx,
+                tipo_mapa=tipo_mapa_idx,
+                progreso_callback=callback_progreso,
+                umbral_pga_min=umbral_pga,
+                eventos=eventos_acumulados,
+            )
+
+            if resultado.get('exito'):
+                ruta_csv_acel = resultado.get('ruta_csv_aceleraciones')
+                msg_csv = f"\n  • CSV Aceleraciones: {os.path.basename(ruta_csv_acel)}" if ruta_csv_acel else ""
+                self._registrar_bitacora(
+                    f"✓ REPORTE PDF GENERADO EXITOSAMENTE:\n"
+                    f"  • Total sismos incluidos: {resultado.get('total_eventos', 0)}\n"
+                    f"  • Archivo: {ruta_pdf_completa}"
+                    f"{msg_csv}"
+                )
+                txt_csv_pop = f"También se generó el resumen de aceleraciones:\n{os.path.basename(ruta_csv_acel)}\n\n" if ruta_csv_acel else ""
+                resp = QMessageBox.question(
+                    self,
+                    "Reporte PDF Generado",
+                    f"El reporte PDF ha sido generado exitosamente con {resultado.get('total_eventos', 0)} sismos.\n\n"
+                    f"{txt_csv_pop}"
+                    f"¿Desea abrir el archivo PDF ahora mismo?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                )
+                if resp == QMessageBox.Yes:
+                    try:
+                        os.startfile(ruta_pdf_completa)
+                    except Exception as e_open:
+                        self._registrar_bitacora(f"Aviso al abrir PDF: {e_open}")
+            else:
+                self._registrar_bitacora(f"⚠ Aviso: {resultado.get('mensaje')}")
+                QMessageBox.warning(self, "Aviso de Generación", resultado.get('mensaje', 'No se generó el PDF.'))
+
+        except Exception as e:
+            self._registrar_bitacora(f"❌ Error generando reporte PDF por estaciones: {str(e)}")
+            QMessageBox.critical(self, "Error en Generación de Reporte", f"Ocurrió un error al generar el PDF:\n{str(e)}")
 
 
 

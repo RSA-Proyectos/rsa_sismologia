@@ -16,6 +16,10 @@ ruta_librerias = os.path.dirname(__file__)
 ruta_proyecto = extraer_hasta_directorio(ruta_librerias, 'procesamiento')
 ruta_librerias = os.path.abspath(os.path.join(ruta_proyecto, 'src', 'librerias'))
 ruta_datos = os.path.abspath(os.path.join(ruta_proyecto, 'datos'))
+if not os.path.isdir(ruta_datos):
+    ruta_datos_raiz = os.path.abspath(os.path.join(ruta_proyecto, '..', 'datos'))
+    if os.path.isdir(ruta_datos_raiz):
+        ruta_datos = ruta_datos_raiz
 
 # Insertar la ruta al inicio del sys.path
 if ruta_librerias not in sys.path:

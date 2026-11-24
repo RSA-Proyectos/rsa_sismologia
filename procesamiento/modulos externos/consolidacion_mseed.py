@@ -17,6 +17,10 @@ if not ruta_proyecto:
     raise RuntimeError('No se encontro la raiz del proyecto rsa_sismologia')
 ruta_librerias = os.path.abspath(os.path.join(ruta_proyecto, 'src','librerias'))
 ruta_datos = os.path.abspath(os.path.join(ruta_proyecto, 'datos'))
+if not os.path.isdir(ruta_datos):
+    ruta_datos_raiz = os.path.abspath(os.path.join(ruta_proyecto, '..', 'datos'))
+    if os.path.isdir(ruta_datos_raiz):
+        ruta_datos = ruta_datos_raiz
 # Insertar la ruta al inicio del sys.path
 if ruta_librerias not in sys.path:
     sys.path.insert(0, ruta_librerias)
@@ -579,7 +583,7 @@ class MyApp(QtWidgets.QMainWindow, Ui_MainWindow):
         self.diez_plt = list(self.config_estaciones['DIEZMADO_PLT'])
         self.bits_ = list(self.config_estaciones['FACTOR_MUL'])
         self.tipo_canal = list(self.config_estaciones['CANAL'])
-        archivo_digitales = os.path.join(ruta_proyecto, 'datos', "digitales.csv")
+        archivo_digitales = os.path.join(ruta_datos, "digitales.csv")
         self.est_digitales_ = lectura_archivo(archivo_digitales)
 
         now = datetime.now()

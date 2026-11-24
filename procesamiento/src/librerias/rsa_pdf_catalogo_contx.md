@@ -87,6 +87,11 @@ Cuando `extras_tecnicos` es `True` (M1, M2, M3), `derivar_banderas_desde_modo` h
 * `>= 5 (Chanlud, Labrado, Huascachaca, Soldados, Ocana, Austro, Elecaustro1, etc.)`: `escala_circulos='normal'`, `estilo_color_sismos='por_profundidad'`, `tipo_resumen_estadistico='vector_filtrado'`, `mostrar_grafico_barras=True`.
 * Cuando `es_periodo=False` (reporte diario M2), `obtener_perfil_mapa` activa además `etiquetar_magnitud_hora_mapa=True` y `tipo_resumen_estadistico='matriz_global'` para rotular magnitud y hora UTC junto a cada epicentro en la portada.
 
+### 2.4. Reporte Especial por Estaciones (`imprimir_reporte_especial_estaciones`)
+* **Propósito**: Emite informes en ReportLab enfocados exclusivamente en estaciones seleccionadas mediante checkboxes en la Sección 3 de `reporte_acumulado.py`.
+* **Criterio de Inclusión**: Filtra los sismos del catálogo según `tipo_evento_filtro` (`TODOS`, `SISMO`, `FF`, etc.) y verifica que al menos una de las estaciones marcadas posea traza registrada (`evento[idx + 3] != '-'`).
+* **Limpio para Entrega**: Fija `mostrar_lineas_fases=False`, `mostrar_zoom_seniales=False`, `mostrar_cabecera_interna_rms=False`, `mostrar_cobertura_red=False` y `mostrar_intentos_proc=False`. Imprime las formas de onda sismológicas limpias (hasta 5 por lámina) y genera las 3 láminas apaisadas de acelerogramas si la estación es acelerográfica.
+
 ---
 
 ## 3. Contratos de Datos e Índices del Catálogo
@@ -113,6 +118,7 @@ Cuando `extras_tecnicos` es `True` (M1, M2, M3), `derivar_banderas_desde_modo` h
 | Función | Firma | Descripción |
 |---|---|---|
 | `reporte_resumen_modos` | `(archivo_pdf, subtitulo_reporte, fecha_ini, fecha_fin, catalogo, resumen, mapa_, tipo_mapa, modo_reporte, estaciones, directorio, arbol, resumen_responsables, eventos, bandera_firma, bandera_relleno, horario="")` | Función principal que construye el PDF completo según el modo (1–7), desde la portada hasta el detalle de formas de onda y acelerogramas. |
+| imprimir_reporte_especial_estaciones | (archivo_pdf, subtitulo_reporte, catalogo, tipo_evento_filtro, indices_estaciones_seleccionadas, directorio_trabajo, arbol, mapa_=1, tipo_mapa=1, progreso_callback=None, umbral_pga_min=0.0, eventos=None) | Genera informe en PDF enfocado en estaciones aportantes seleccionadas, soportando eventos locales (RSA), externos (IGEPN, USGS) y regionales (FF, FC) combinando matriz acumulada y catálogo, con portada cartográfica, lista tabular y fichas con acelerogramas y CSV. |
 | `construir_catalogo_temporal_turno` | `(catalogo: list, eventos: list = None, horario: str = "", insertar_no_procesado: bool = False) -> list` | Construye desde cero un catálogo temporal exclusivo para la franja horaria indicada en `horario` (`00:00 - 12:00`, `12:00 - 18:00`, `18:00 - 24:00`), filtrando tanto los sismos procesados de `catalogo` como los eventos no-`Ruido` de `eventos` mediante extracción de hora `[-10:-8]` (compatible con `AAMMDD_hhmmss.sis` y `AAAAMMDD_hhmmss.sis`), sin alterar el catálogo acumulado del día. |
 | `imprimir_catalogo` | `(catalogo, arbol, lienzo, directorio, estaciones_informe, tipo_canal, mapa_, raiz, detalle, banderas=None)` | Recorre el catálogo agrupando entradas de distintas redes para un mismo `.sis`, pagina estaciones de 5 en 5 e imprime sismogramas y acelerogramas propagando `banderas`. |
 | `marcar_impresiones` | `(lista_eventos, estaciones_informe, tipo_canal, mapa_)` | Determina el vector binario (0/1) de estaciones a graficar según la máscara del mapa, tipo de sensor y bandera de habilitación en el token `EEEECBFFIISS` (índice 5). |

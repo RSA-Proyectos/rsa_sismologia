@@ -610,14 +610,15 @@ class Configurar_estaciones(QWidget):
 # 7. RESPALDO Y RESTAURACIÓN DEL PROGRAMA (ZIP - SOLO PC ADMINISTRADOR)
 # ==============================================================================
 
-CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src")
+CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src", "iconos")
 CARPETAS_EXCLUIDAS_RESPALDO = {"__pycache__", "vw backup"}
 EXTENSIONES_EXCLUIDAS_RESPALDO = {".vwx", ".vwxw", ".vwt", ".mcd", ".pyc", ".pyo"}
 
 
 def recolectar_archivos_respaldo(raiz_origen: str):
     """
-    Recorre `datos/`, `modulos externos/` y `src/` dentro de `raiz_origen`
+    Recorre `datos/`, `modulos externos/`, `src/` e `iconos/` dentro de `raiz_origen`
+    (con búsqueda de contingencia en la raíz padre para datos e iconos si raiz_origen es procesamiento/)
     excluyendo carpetas de caché (`__pycache__`), respaldos Vectorworks (`VW Backup`)
     y extensiones excluidas (`.vwx`, `.vwxw`, `.vwt`, `.mcd`, `.pyc`, `.pyo`).
 
@@ -630,8 +631,15 @@ def recolectar_archivos_respaldo(raiz_origen: str):
 
     for carpeta_base in CARPETAS_RESPALDO_PROGRAMA:
         dir_objetivo = raiz_path / carpeta_base
+        es_externo_raiz = False
         if not dir_objetivo.is_dir():
-            continue
+            dir_alt = raiz_path.parent / carpeta_base
+            if dir_alt.is_dir():
+                dir_objetivo = dir_alt
+                es_externo_raiz = True
+            else:
+                continue
+
         for actual, subdirs, nombres in os.walk(dir_objetivo):
             subdirs_filtrados = []
             for d in subdirs:
@@ -647,7 +655,11 @@ def recolectar_archivos_respaldo(raiz_origen: str):
                     conteo_excluidos += 1
                     continue
                 ruta_abs = os.path.join(actual, nom)
-                ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
+                if es_externo_raiz:
+                    rel_dentro = os.path.relpath(ruta_abs, dir_objetivo).replace("\\", "/")
+                    ruta_rel = f"{carpeta_base}/{rel_dentro}"
+                else:
+                    ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
                 archivos_incluir.append((ruta_abs, ruta_rel))
 
     return archivos_incluir, conteo_excluidos
@@ -736,10 +748,19 @@ class HiloRestaurarZip(QThread):
 
                 for idx, info in enumerate(entradas, start=1):
                     nombre_rel = info.filename.replace("\\", "/").lstrip("/")
-                    dest_abs = os.path.abspath(os.path.join(raiz_dest, *nombre_rel.split("/")))
+                    partes = nombre_rel.split("/")
+                    carpeta_raiz_zip = partes[0]
+
+                    # Si es iconos y se restaura dentro de procesamiento/, ubicar en el padre
+                    if carpeta_raiz_zip == "iconos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dest_abs = os.path.abspath(os.path.join(os.path.dirname(raiz_dest), *partes))
+                        raiz_permitida = os.path.dirname(raiz_dest)
+                    else:
+                        dest_abs = os.path.abspath(os.path.join(raiz_dest, *partes))
+                        raiz_permitida = raiz_dest
 
                     # Protección contra rutas maliciosas fuera de carpeta_destino (Zip Slip)
-                    if os.path.commonpath([raiz_dest, dest_abs]) != raiz_dest:
+                    if os.path.commonpath([raiz_permitida, dest_abs]) != raiz_permitida:
                         omitidos += 1
                         continue
 
@@ -759,6 +780,18 @@ class HiloRestaurarZip(QThread):
                     with zf.open(info, "r") as f_src, open(dest_abs, "wb") as f_dst:
                         shutil.copyfileobj(f_src, f_dst)
                     os.utime(dest_abs, (mtime_zip, mtime_zip))
+
+                    # Si se actualizó un archivo en datos/ y existe un directorio datos/ paralelo en la raíz
+                    if carpeta_raiz_zip == "datos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dir_datos_padre = os.path.join(os.path.dirname(raiz_dest), "datos")
+                        if os.path.isdir(dir_datos_padre):
+                            try:
+                                if not os.path.samefile(os.path.dirname(dest_abs), dir_datos_padre):
+                                    dest_espejo = os.path.join(dir_datos_padre, *partes[1:])
+                                    os.makedirs(os.path.dirname(dest_espejo), exist_ok=True)
+                                    shutil.copy2(dest_abs, dest_espejo)
+                            except Exception:
+                                pass
 
                     if existe_previo:
                         actualizados += 1
@@ -821,8 +854,8 @@ class Respaldar_programa(QWidget):
         v_bkp = QVBoxLayout(grp_backup)
         lbl_info_bkp = QLabel(
             f"<b>Origen:</b> <code>{self.raiz_proyecto}</code><br>"
-            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code> y <code>src/</code> "
-            "(respetando íntegramente su estructura de directorios).<br>"
+            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code>, <code>src/</code> "
+            "e <code>iconos/</code> (respetando íntegramente su estructura de directorios).<br>"
             "<b>Exclusiones automáticas:</b> GitHub/Agente, <code>datos/mapas/VW Backup/</code>, "
             "archivos de Vectorworks (<code>*.vwx</code>, <code>*.vwxw</code>, <code>*.vwt</code>, <code>*.mcd</code>) "
             "y caché Python (<code>__pycache__/</code>, <code>*.pyc</code>).",
@@ -835,7 +868,7 @@ class Respaldar_programa(QWidget):
         h_bkp_btn = QHBoxLayout()
         self.btn_crear_zip = QPushButton("Generar Respaldo ZIP (Guardar como...)", grp_backup)
         self.btn_crear_zip.setObjectName("btn_primario")
-        self.btn_crear_zip.setEnabled(autorizado_pc)
+        self.btn_crear_zip.setEnabled(True)
         self.btn_crear_zip.clicked.connect(self.ejecutar_respaldo_zip)
         h_bkp_btn.addWidget(self.btn_crear_zip)
         h_bkp_btn.addStretch()
@@ -867,15 +900,24 @@ class Respaldar_programa(QWidget):
         layout_raiz.addLayout(h_pie)
 
     def _establecer_controles_activos(self, habilitado: bool):
-        autorizado_pc, _, _ = verificar_permiso_respaldo_pc()
-        self.btn_crear_zip.setEnabled(habilitado and autorizado_pc)
+        self.btn_crear_zip.setEnabled(habilitado)
         self.btn_salir.setEnabled(habilitado)
 
     def ejecutar_respaldo_zip(self):
         autorizado_pc, _, msg_pc = verificar_permiso_respaldo_pc()
         if not autorizado_pc:
-            QMessageBox.warning(self, "Acceso Restringido", msg_pc)
-            return
+            cfg = cargar_config_local_pc()
+            clave_esperada = str(cfg.get("clave_administrador") or "RSA").strip()
+            clave_ing, ok = QInputDialog.getText(
+                self,
+                "Autorización de Administrador Requerida",
+                f"{msg_pc}\n\nIngrese la clave de Administrador (por defecto 'RSA') para autorizar el respaldo:",
+                QLineEdit.Password,
+            )
+            if not ok or clave_ing.strip() != clave_esperada:
+                if ok:
+                    QMessageBox.critical(self, "Acceso Denegado", "Clave de Administrador incorrecta. No se generó el respaldo.")
+                return
 
         nombre_sug = f"respaldo_rsa_sismologia_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
         ruta_zip, _ = QFileDialog.getSaveFileName(
@@ -1247,14 +1289,15 @@ class Configurar_analogicas(QWidget):
 # 7. RESPALDO Y RESTAURACIÓN DEL PROGRAMA (ZIP - SOLO PC ADMINISTRADOR)
 # ==============================================================================
 
-CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src")
+CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src", "iconos")
 CARPETAS_EXCLUIDAS_RESPALDO = {"__pycache__", "vw backup"}
 EXTENSIONES_EXCLUIDAS_RESPALDO = {".vwx", ".vwxw", ".vwt", ".mcd", ".pyc", ".pyo"}
 
 
 def recolectar_archivos_respaldo(raiz_origen: str):
     """
-    Recorre `datos/`, `modulos externos/` y `src/` dentro de `raiz_origen`
+    Recorre `datos/`, `modulos externos/`, `src/` e `iconos/` dentro de `raiz_origen`
+    (con búsqueda de contingencia en la raíz padre para datos e iconos si raiz_origen es procesamiento/)
     excluyendo carpetas de caché (`__pycache__`), respaldos Vectorworks (`VW Backup`)
     y extensiones excluidas (`.vwx`, `.vwxw`, `.vwt`, `.mcd`, `.pyc`, `.pyo`).
 
@@ -1267,8 +1310,15 @@ def recolectar_archivos_respaldo(raiz_origen: str):
 
     for carpeta_base in CARPETAS_RESPALDO_PROGRAMA:
         dir_objetivo = raiz_path / carpeta_base
+        es_externo_raiz = False
         if not dir_objetivo.is_dir():
-            continue
+            dir_alt = raiz_path.parent / carpeta_base
+            if dir_alt.is_dir():
+                dir_objetivo = dir_alt
+                es_externo_raiz = True
+            else:
+                continue
+
         for actual, subdirs, nombres in os.walk(dir_objetivo):
             subdirs_filtrados = []
             for d in subdirs:
@@ -1284,7 +1334,11 @@ def recolectar_archivos_respaldo(raiz_origen: str):
                     conteo_excluidos += 1
                     continue
                 ruta_abs = os.path.join(actual, nom)
-                ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
+                if es_externo_raiz:
+                    rel_dentro = os.path.relpath(ruta_abs, dir_objetivo).replace("\\", "/")
+                    ruta_rel = f"{carpeta_base}/{rel_dentro}"
+                else:
+                    ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
                 archivos_incluir.append((ruta_abs, ruta_rel))
 
     return archivos_incluir, conteo_excluidos
@@ -1373,10 +1427,19 @@ class HiloRestaurarZip(QThread):
 
                 for idx, info in enumerate(entradas, start=1):
                     nombre_rel = info.filename.replace("\\", "/").lstrip("/")
-                    dest_abs = os.path.abspath(os.path.join(raiz_dest, *nombre_rel.split("/")))
+                    partes = nombre_rel.split("/")
+                    carpeta_raiz_zip = partes[0]
+
+                    # Si es iconos y se restaura dentro de procesamiento/, ubicar en el padre
+                    if carpeta_raiz_zip == "iconos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dest_abs = os.path.abspath(os.path.join(os.path.dirname(raiz_dest), *partes))
+                        raiz_permitida = os.path.dirname(raiz_dest)
+                    else:
+                        dest_abs = os.path.abspath(os.path.join(raiz_dest, *partes))
+                        raiz_permitida = raiz_dest
 
                     # Protección contra rutas maliciosas fuera de carpeta_destino (Zip Slip)
-                    if os.path.commonpath([raiz_dest, dest_abs]) != raiz_dest:
+                    if os.path.commonpath([raiz_permitida, dest_abs]) != raiz_permitida:
                         omitidos += 1
                         continue
 
@@ -1396,6 +1459,18 @@ class HiloRestaurarZip(QThread):
                     with zf.open(info, "r") as f_src, open(dest_abs, "wb") as f_dst:
                         shutil.copyfileobj(f_src, f_dst)
                     os.utime(dest_abs, (mtime_zip, mtime_zip))
+
+                    # Si se actualizó un archivo en datos/ y existe un directorio datos/ paralelo en la raíz
+                    if carpeta_raiz_zip == "datos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dir_datos_padre = os.path.join(os.path.dirname(raiz_dest), "datos")
+                        if os.path.isdir(dir_datos_padre):
+                            try:
+                                if not os.path.samefile(os.path.dirname(dest_abs), dir_datos_padre):
+                                    dest_espejo = os.path.join(dir_datos_padre, *partes[1:])
+                                    os.makedirs(os.path.dirname(dest_espejo), exist_ok=True)
+                                    shutil.copy2(dest_abs, dest_espejo)
+                            except Exception:
+                                pass
 
                     if existe_previo:
                         actualizados += 1
@@ -1458,8 +1533,8 @@ class Respaldar_programa(QWidget):
         v_bkp = QVBoxLayout(grp_backup)
         lbl_info_bkp = QLabel(
             f"<b>Origen:</b> <code>{self.raiz_proyecto}</code><br>"
-            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code> y <code>src/</code> "
-            "(respetando íntegramente su estructura de directorios).<br>"
+            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code>, <code>src/</code> "
+            "e <code>iconos/</code> (respetando íntegramente su estructura de directorios).<br>"
             "<b>Exclusiones automáticas:</b> GitHub/Agente, <code>datos/mapas/VW Backup/</code>, "
             "archivos de Vectorworks (<code>*.vwx</code>, <code>*.vwxw</code>, <code>*.vwt</code>, <code>*.mcd</code>) "
             "y caché Python (<code>__pycache__/</code>, <code>*.pyc</code>).",
@@ -1472,7 +1547,7 @@ class Respaldar_programa(QWidget):
         h_bkp_btn = QHBoxLayout()
         self.btn_crear_zip = QPushButton("Generar Respaldo ZIP (Guardar como...)", grp_backup)
         self.btn_crear_zip.setObjectName("btn_primario")
-        self.btn_crear_zip.setEnabled(autorizado_pc)
+        self.btn_crear_zip.setEnabled(True)
         self.btn_crear_zip.clicked.connect(self.ejecutar_respaldo_zip)
         h_bkp_btn.addWidget(self.btn_crear_zip)
         h_bkp_btn.addStretch()
@@ -1504,15 +1579,24 @@ class Respaldar_programa(QWidget):
         layout_raiz.addLayout(h_pie)
 
     def _establecer_controles_activos(self, habilitado: bool):
-        autorizado_pc, _, _ = verificar_permiso_respaldo_pc()
-        self.btn_crear_zip.setEnabled(habilitado and autorizado_pc)
+        self.btn_crear_zip.setEnabled(habilitado)
         self.btn_salir.setEnabled(habilitado)
 
     def ejecutar_respaldo_zip(self):
         autorizado_pc, _, msg_pc = verificar_permiso_respaldo_pc()
         if not autorizado_pc:
-            QMessageBox.warning(self, "Acceso Restringido", msg_pc)
-            return
+            cfg = cargar_config_local_pc()
+            clave_esperada = str(cfg.get("clave_administrador") or "RSA").strip()
+            clave_ing, ok = QInputDialog.getText(
+                self,
+                "Autorización de Administrador Requerida",
+                f"{msg_pc}\n\nIngrese la clave de Administrador (por defecto 'RSA') para autorizar el respaldo:",
+                QLineEdit.Password,
+            )
+            if not ok or clave_ing.strip() != clave_esperada:
+                if ok:
+                    QMessageBox.critical(self, "Acceso Denegado", "Clave de Administrador incorrecta. No se generó el respaldo.")
+                return
 
         nombre_sug = f"respaldo_rsa_sismologia_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
         ruta_zip, _ = QFileDialog.getSaveFileName(
@@ -1916,14 +2000,15 @@ class Configurar_digitales(QWidget):
 # 7. RESPALDO Y RESTAURACIÓN DEL PROGRAMA (ZIP - SOLO PC ADMINISTRADOR)
 # ==============================================================================
 
-CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src")
+CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src", "iconos")
 CARPETAS_EXCLUIDAS_RESPALDO = {"__pycache__", "vw backup"}
 EXTENSIONES_EXCLUIDAS_RESPALDO = {".vwx", ".vwxw", ".vwt", ".mcd", ".pyc", ".pyo"}
 
 
 def recolectar_archivos_respaldo(raiz_origen: str):
     """
-    Recorre `datos/`, `modulos externos/` y `src/` dentro de `raiz_origen`
+    Recorre `datos/`, `modulos externos/`, `src/` e `iconos/` dentro de `raiz_origen`
+    (con búsqueda de contingencia en la raíz padre para datos e iconos si raiz_origen es procesamiento/)
     excluyendo carpetas de caché (`__pycache__`), respaldos Vectorworks (`VW Backup`)
     y extensiones excluidas (`.vwx`, `.vwxw`, `.vwt`, `.mcd`, `.pyc`, `.pyo`).
 
@@ -1936,8 +2021,15 @@ def recolectar_archivos_respaldo(raiz_origen: str):
 
     for carpeta_base in CARPETAS_RESPALDO_PROGRAMA:
         dir_objetivo = raiz_path / carpeta_base
+        es_externo_raiz = False
         if not dir_objetivo.is_dir():
-            continue
+            dir_alt = raiz_path.parent / carpeta_base
+            if dir_alt.is_dir():
+                dir_objetivo = dir_alt
+                es_externo_raiz = True
+            else:
+                continue
+
         for actual, subdirs, nombres in os.walk(dir_objetivo):
             subdirs_filtrados = []
             for d in subdirs:
@@ -1953,7 +2045,11 @@ def recolectar_archivos_respaldo(raiz_origen: str):
                     conteo_excluidos += 1
                     continue
                 ruta_abs = os.path.join(actual, nom)
-                ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
+                if es_externo_raiz:
+                    rel_dentro = os.path.relpath(ruta_abs, dir_objetivo).replace("\\", "/")
+                    ruta_rel = f"{carpeta_base}/{rel_dentro}"
+                else:
+                    ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
                 archivos_incluir.append((ruta_abs, ruta_rel))
 
     return archivos_incluir, conteo_excluidos
@@ -2042,10 +2138,19 @@ class HiloRestaurarZip(QThread):
 
                 for idx, info in enumerate(entradas, start=1):
                     nombre_rel = info.filename.replace("\\", "/").lstrip("/")
-                    dest_abs = os.path.abspath(os.path.join(raiz_dest, *nombre_rel.split("/")))
+                    partes = nombre_rel.split("/")
+                    carpeta_raiz_zip = partes[0]
+
+                    # Si es iconos y se restaura dentro de procesamiento/, ubicar en el padre
+                    if carpeta_raiz_zip == "iconos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dest_abs = os.path.abspath(os.path.join(os.path.dirname(raiz_dest), *partes))
+                        raiz_permitida = os.path.dirname(raiz_dest)
+                    else:
+                        dest_abs = os.path.abspath(os.path.join(raiz_dest, *partes))
+                        raiz_permitida = raiz_dest
 
                     # Protección contra rutas maliciosas fuera de carpeta_destino (Zip Slip)
-                    if os.path.commonpath([raiz_dest, dest_abs]) != raiz_dest:
+                    if os.path.commonpath([raiz_permitida, dest_abs]) != raiz_permitida:
                         omitidos += 1
                         continue
 
@@ -2065,6 +2170,18 @@ class HiloRestaurarZip(QThread):
                     with zf.open(info, "r") as f_src, open(dest_abs, "wb") as f_dst:
                         shutil.copyfileobj(f_src, f_dst)
                     os.utime(dest_abs, (mtime_zip, mtime_zip))
+
+                    # Si se actualizó un archivo en datos/ y existe un directorio datos/ paralelo en la raíz
+                    if carpeta_raiz_zip == "datos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dir_datos_padre = os.path.join(os.path.dirname(raiz_dest), "datos")
+                        if os.path.isdir(dir_datos_padre):
+                            try:
+                                if not os.path.samefile(os.path.dirname(dest_abs), dir_datos_padre):
+                                    dest_espejo = os.path.join(dir_datos_padre, *partes[1:])
+                                    os.makedirs(os.path.dirname(dest_espejo), exist_ok=True)
+                                    shutil.copy2(dest_abs, dest_espejo)
+                            except Exception:
+                                pass
 
                     if existe_previo:
                         actualizados += 1
@@ -2127,8 +2244,8 @@ class Respaldar_programa(QWidget):
         v_bkp = QVBoxLayout(grp_backup)
         lbl_info_bkp = QLabel(
             f"<b>Origen:</b> <code>{self.raiz_proyecto}</code><br>"
-            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code> y <code>src/</code> "
-            "(respetando íntegramente su estructura de directorios).<br>"
+            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code>, <code>src/</code> "
+            "e <code>iconos/</code> (respetando íntegramente su estructura de directorios).<br>"
             "<b>Exclusiones automáticas:</b> GitHub/Agente, <code>datos/mapas/VW Backup/</code>, "
             "archivos de Vectorworks (<code>*.vwx</code>, <code>*.vwxw</code>, <code>*.vwt</code>, <code>*.mcd</code>) "
             "y caché Python (<code>__pycache__/</code>, <code>*.pyc</code>).",
@@ -2141,7 +2258,7 @@ class Respaldar_programa(QWidget):
         h_bkp_btn = QHBoxLayout()
         self.btn_crear_zip = QPushButton("Generar Respaldo ZIP (Guardar como...)", grp_backup)
         self.btn_crear_zip.setObjectName("btn_primario")
-        self.btn_crear_zip.setEnabled(autorizado_pc)
+        self.btn_crear_zip.setEnabled(True)
         self.btn_crear_zip.clicked.connect(self.ejecutar_respaldo_zip)
         h_bkp_btn.addWidget(self.btn_crear_zip)
         h_bkp_btn.addStretch()
@@ -2173,15 +2290,24 @@ class Respaldar_programa(QWidget):
         layout_raiz.addLayout(h_pie)
 
     def _establecer_controles_activos(self, habilitado: bool):
-        autorizado_pc, _, _ = verificar_permiso_respaldo_pc()
-        self.btn_crear_zip.setEnabled(habilitado and autorizado_pc)
+        self.btn_crear_zip.setEnabled(habilitado)
         self.btn_salir.setEnabled(habilitado)
 
     def ejecutar_respaldo_zip(self):
         autorizado_pc, _, msg_pc = verificar_permiso_respaldo_pc()
         if not autorizado_pc:
-            QMessageBox.warning(self, "Acceso Restringido", msg_pc)
-            return
+            cfg = cargar_config_local_pc()
+            clave_esperada = str(cfg.get("clave_administrador") or "RSA").strip()
+            clave_ing, ok = QInputDialog.getText(
+                self,
+                "Autorización de Administrador Requerida",
+                f"{msg_pc}\n\nIngrese la clave de Administrador (por defecto 'RSA') para autorizar el respaldo:",
+                QLineEdit.Password,
+            )
+            if not ok or clave_ing.strip() != clave_esperada:
+                if ok:
+                    QMessageBox.critical(self, "Acceso Denegado", "Clave de Administrador incorrecta. No se generó el respaldo.")
+                return
 
         nombre_sug = f"respaldo_rsa_sismologia_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
         ruta_zip, _ = QFileDialog.getSaveFileName(
@@ -2613,14 +2739,15 @@ class Configurar_responsables(QWidget):
 # 7. RESPALDO Y RESTAURACIÓN DEL PROGRAMA (ZIP - SOLO PC ADMINISTRADOR)
 # ==============================================================================
 
-CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src")
+CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src", "iconos")
 CARPETAS_EXCLUIDAS_RESPALDO = {"__pycache__", "vw backup"}
 EXTENSIONES_EXCLUIDAS_RESPALDO = {".vwx", ".vwxw", ".vwt", ".mcd", ".pyc", ".pyo"}
 
 
 def recolectar_archivos_respaldo(raiz_origen: str):
     """
-    Recorre `datos/`, `modulos externos/` y `src/` dentro de `raiz_origen`
+    Recorre `datos/`, `modulos externos/`, `src/` e `iconos/` dentro de `raiz_origen`
+    (con búsqueda de contingencia en la raíz padre para datos e iconos si raiz_origen es procesamiento/)
     excluyendo carpetas de caché (`__pycache__`), respaldos Vectorworks (`VW Backup`)
     y extensiones excluidas (`.vwx`, `.vwxw`, `.vwt`, `.mcd`, `.pyc`, `.pyo`).
 
@@ -2633,8 +2760,15 @@ def recolectar_archivos_respaldo(raiz_origen: str):
 
     for carpeta_base in CARPETAS_RESPALDO_PROGRAMA:
         dir_objetivo = raiz_path / carpeta_base
+        es_externo_raiz = False
         if not dir_objetivo.is_dir():
-            continue
+            dir_alt = raiz_path.parent / carpeta_base
+            if dir_alt.is_dir():
+                dir_objetivo = dir_alt
+                es_externo_raiz = True
+            else:
+                continue
+
         for actual, subdirs, nombres in os.walk(dir_objetivo):
             subdirs_filtrados = []
             for d in subdirs:
@@ -2650,7 +2784,11 @@ def recolectar_archivos_respaldo(raiz_origen: str):
                     conteo_excluidos += 1
                     continue
                 ruta_abs = os.path.join(actual, nom)
-                ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
+                if es_externo_raiz:
+                    rel_dentro = os.path.relpath(ruta_abs, dir_objetivo).replace("\\", "/")
+                    ruta_rel = f"{carpeta_base}/{rel_dentro}"
+                else:
+                    ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
                 archivos_incluir.append((ruta_abs, ruta_rel))
 
     return archivos_incluir, conteo_excluidos
@@ -2739,10 +2877,19 @@ class HiloRestaurarZip(QThread):
 
                 for idx, info in enumerate(entradas, start=1):
                     nombre_rel = info.filename.replace("\\", "/").lstrip("/")
-                    dest_abs = os.path.abspath(os.path.join(raiz_dest, *nombre_rel.split("/")))
+                    partes = nombre_rel.split("/")
+                    carpeta_raiz_zip = partes[0]
+
+                    # Si es iconos y se restaura dentro de procesamiento/, ubicar en el padre
+                    if carpeta_raiz_zip == "iconos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dest_abs = os.path.abspath(os.path.join(os.path.dirname(raiz_dest), *partes))
+                        raiz_permitida = os.path.dirname(raiz_dest)
+                    else:
+                        dest_abs = os.path.abspath(os.path.join(raiz_dest, *partes))
+                        raiz_permitida = raiz_dest
 
                     # Protección contra rutas maliciosas fuera de carpeta_destino (Zip Slip)
-                    if os.path.commonpath([raiz_dest, dest_abs]) != raiz_dest:
+                    if os.path.commonpath([raiz_permitida, dest_abs]) != raiz_permitida:
                         omitidos += 1
                         continue
 
@@ -2762,6 +2909,18 @@ class HiloRestaurarZip(QThread):
                     with zf.open(info, "r") as f_src, open(dest_abs, "wb") as f_dst:
                         shutil.copyfileobj(f_src, f_dst)
                     os.utime(dest_abs, (mtime_zip, mtime_zip))
+
+                    # Si se actualizó un archivo en datos/ y existe un directorio datos/ paralelo en la raíz
+                    if carpeta_raiz_zip == "datos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dir_datos_padre = os.path.join(os.path.dirname(raiz_dest), "datos")
+                        if os.path.isdir(dir_datos_padre):
+                            try:
+                                if not os.path.samefile(os.path.dirname(dest_abs), dir_datos_padre):
+                                    dest_espejo = os.path.join(dir_datos_padre, *partes[1:])
+                                    os.makedirs(os.path.dirname(dest_espejo), exist_ok=True)
+                                    shutil.copy2(dest_abs, dest_espejo)
+                            except Exception:
+                                pass
 
                     if existe_previo:
                         actualizados += 1
@@ -2824,8 +2983,8 @@ class Respaldar_programa(QWidget):
         v_bkp = QVBoxLayout(grp_backup)
         lbl_info_bkp = QLabel(
             f"<b>Origen:</b> <code>{self.raiz_proyecto}</code><br>"
-            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code> y <code>src/</code> "
-            "(respetando íntegramente su estructura de directorios).<br>"
+            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code>, <code>src/</code> "
+            "e <code>iconos/</code> (respetando íntegramente su estructura de directorios).<br>"
             "<b>Exclusiones automáticas:</b> GitHub/Agente, <code>datos/mapas/VW Backup/</code>, "
             "archivos de Vectorworks (<code>*.vwx</code>, <code>*.vwxw</code>, <code>*.vwt</code>, <code>*.mcd</code>) "
             "y caché Python (<code>__pycache__/</code>, <code>*.pyc</code>).",
@@ -2838,7 +2997,7 @@ class Respaldar_programa(QWidget):
         h_bkp_btn = QHBoxLayout()
         self.btn_crear_zip = QPushButton("Generar Respaldo ZIP (Guardar como...)", grp_backup)
         self.btn_crear_zip.setObjectName("btn_primario")
-        self.btn_crear_zip.setEnabled(autorizado_pc)
+        self.btn_crear_zip.setEnabled(True)
         self.btn_crear_zip.clicked.connect(self.ejecutar_respaldo_zip)
         h_bkp_btn.addWidget(self.btn_crear_zip)
         h_bkp_btn.addStretch()
@@ -2870,15 +3029,24 @@ class Respaldar_programa(QWidget):
         layout_raiz.addLayout(h_pie)
 
     def _establecer_controles_activos(self, habilitado: bool):
-        autorizado_pc, _, _ = verificar_permiso_respaldo_pc()
-        self.btn_crear_zip.setEnabled(habilitado and autorizado_pc)
+        self.btn_crear_zip.setEnabled(habilitado)
         self.btn_salir.setEnabled(habilitado)
 
     def ejecutar_respaldo_zip(self):
         autorizado_pc, _, msg_pc = verificar_permiso_respaldo_pc()
         if not autorizado_pc:
-            QMessageBox.warning(self, "Acceso Restringido", msg_pc)
-            return
+            cfg = cargar_config_local_pc()
+            clave_esperada = str(cfg.get("clave_administrador") or "RSA").strip()
+            clave_ing, ok = QInputDialog.getText(
+                self,
+                "Autorización de Administrador Requerida",
+                f"{msg_pc}\n\nIngrese la clave de Administrador (por defecto 'RSA') para autorizar el respaldo:",
+                QLineEdit.Password,
+            )
+            if not ok or clave_ing.strip() != clave_esperada:
+                if ok:
+                    QMessageBox.critical(self, "Acceso Denegado", "Clave de Administrador incorrecta. No se generó el respaldo.")
+                return
 
         nombre_sug = f"respaldo_rsa_sismologia_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
         ruta_zip, _ = QFileDialog.getSaveFileName(
@@ -3605,14 +3773,15 @@ class Configurar_mapas(QWidget):
 # 7. RESPALDO Y RESTAURACIÓN DEL PROGRAMA (ZIP - SOLO PC ADMINISTRADOR)
 # ==============================================================================
 
-CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src")
+CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src", "iconos")
 CARPETAS_EXCLUIDAS_RESPALDO = {"__pycache__", "vw backup"}
 EXTENSIONES_EXCLUIDAS_RESPALDO = {".vwx", ".vwxw", ".vwt", ".mcd", ".pyc", ".pyo"}
 
 
 def recolectar_archivos_respaldo(raiz_origen: str):
     """
-    Recorre `datos/`, `modulos externos/` y `src/` dentro de `raiz_origen`
+    Recorre `datos/`, `modulos externos/`, `src/` e `iconos/` dentro de `raiz_origen`
+    (con búsqueda de contingencia en la raíz padre para datos e iconos si raiz_origen es procesamiento/)
     excluyendo carpetas de caché (`__pycache__`), respaldos Vectorworks (`VW Backup`)
     y extensiones excluidas (`.vwx`, `.vwxw`, `.vwt`, `.mcd`, `.pyc`, `.pyo`).
 
@@ -3625,8 +3794,15 @@ def recolectar_archivos_respaldo(raiz_origen: str):
 
     for carpeta_base in CARPETAS_RESPALDO_PROGRAMA:
         dir_objetivo = raiz_path / carpeta_base
+        es_externo_raiz = False
         if not dir_objetivo.is_dir():
-            continue
+            dir_alt = raiz_path.parent / carpeta_base
+            if dir_alt.is_dir():
+                dir_objetivo = dir_alt
+                es_externo_raiz = True
+            else:
+                continue
+
         for actual, subdirs, nombres in os.walk(dir_objetivo):
             subdirs_filtrados = []
             for d in subdirs:
@@ -3642,7 +3818,11 @@ def recolectar_archivos_respaldo(raiz_origen: str):
                     conteo_excluidos += 1
                     continue
                 ruta_abs = os.path.join(actual, nom)
-                ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
+                if es_externo_raiz:
+                    rel_dentro = os.path.relpath(ruta_abs, dir_objetivo).replace("\\", "/")
+                    ruta_rel = f"{carpeta_base}/{rel_dentro}"
+                else:
+                    ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
                 archivos_incluir.append((ruta_abs, ruta_rel))
 
     return archivos_incluir, conteo_excluidos
@@ -3731,10 +3911,19 @@ class HiloRestaurarZip(QThread):
 
                 for idx, info in enumerate(entradas, start=1):
                     nombre_rel = info.filename.replace("\\", "/").lstrip("/")
-                    dest_abs = os.path.abspath(os.path.join(raiz_dest, *nombre_rel.split("/")))
+                    partes = nombre_rel.split("/")
+                    carpeta_raiz_zip = partes[0]
+
+                    # Si es iconos y se restaura dentro de procesamiento/, ubicar en el padre
+                    if carpeta_raiz_zip == "iconos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dest_abs = os.path.abspath(os.path.join(os.path.dirname(raiz_dest), *partes))
+                        raiz_permitida = os.path.dirname(raiz_dest)
+                    else:
+                        dest_abs = os.path.abspath(os.path.join(raiz_dest, *partes))
+                        raiz_permitida = raiz_dest
 
                     # Protección contra rutas maliciosas fuera de carpeta_destino (Zip Slip)
-                    if os.path.commonpath([raiz_dest, dest_abs]) != raiz_dest:
+                    if os.path.commonpath([raiz_permitida, dest_abs]) != raiz_permitida:
                         omitidos += 1
                         continue
 
@@ -3754,6 +3943,18 @@ class HiloRestaurarZip(QThread):
                     with zf.open(info, "r") as f_src, open(dest_abs, "wb") as f_dst:
                         shutil.copyfileobj(f_src, f_dst)
                     os.utime(dest_abs, (mtime_zip, mtime_zip))
+
+                    # Si se actualizó un archivo en datos/ y existe un directorio datos/ paralelo en la raíz
+                    if carpeta_raiz_zip == "datos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dir_datos_padre = os.path.join(os.path.dirname(raiz_dest), "datos")
+                        if os.path.isdir(dir_datos_padre):
+                            try:
+                                if not os.path.samefile(os.path.dirname(dest_abs), dir_datos_padre):
+                                    dest_espejo = os.path.join(dir_datos_padre, *partes[1:])
+                                    os.makedirs(os.path.dirname(dest_espejo), exist_ok=True)
+                                    shutil.copy2(dest_abs, dest_espejo)
+                            except Exception:
+                                pass
 
                     if existe_previo:
                         actualizados += 1
@@ -3816,8 +4017,8 @@ class Respaldar_programa(QWidget):
         v_bkp = QVBoxLayout(grp_backup)
         lbl_info_bkp = QLabel(
             f"<b>Origen:</b> <code>{self.raiz_proyecto}</code><br>"
-            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code> y <code>src/</code> "
-            "(respetando íntegramente su estructura de directorios).<br>"
+            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code>, <code>src/</code> "
+            "e <code>iconos/</code> (respetando íntegramente su estructura de directorios).<br>"
             "<b>Exclusiones automáticas:</b> GitHub/Agente, <code>datos/mapas/VW Backup/</code>, "
             "archivos de Vectorworks (<code>*.vwx</code>, <code>*.vwxw</code>, <code>*.vwt</code>, <code>*.mcd</code>) "
             "y caché Python (<code>__pycache__/</code>, <code>*.pyc</code>).",
@@ -3830,7 +4031,7 @@ class Respaldar_programa(QWidget):
         h_bkp_btn = QHBoxLayout()
         self.btn_crear_zip = QPushButton("Generar Respaldo ZIP (Guardar como...)", grp_backup)
         self.btn_crear_zip.setObjectName("btn_primario")
-        self.btn_crear_zip.setEnabled(autorizado_pc)
+        self.btn_crear_zip.setEnabled(True)
         self.btn_crear_zip.clicked.connect(self.ejecutar_respaldo_zip)
         h_bkp_btn.addWidget(self.btn_crear_zip)
         h_bkp_btn.addStretch()
@@ -3862,15 +4063,24 @@ class Respaldar_programa(QWidget):
         layout_raiz.addLayout(h_pie)
 
     def _establecer_controles_activos(self, habilitado: bool):
-        autorizado_pc, _, _ = verificar_permiso_respaldo_pc()
-        self.btn_crear_zip.setEnabled(habilitado and autorizado_pc)
+        self.btn_crear_zip.setEnabled(habilitado)
         self.btn_salir.setEnabled(habilitado)
 
     def ejecutar_respaldo_zip(self):
         autorizado_pc, _, msg_pc = verificar_permiso_respaldo_pc()
         if not autorizado_pc:
-            QMessageBox.warning(self, "Acceso Restringido", msg_pc)
-            return
+            cfg = cargar_config_local_pc()
+            clave_esperada = str(cfg.get("clave_administrador") or "RSA").strip()
+            clave_ing, ok = QInputDialog.getText(
+                self,
+                "Autorización de Administrador Requerida",
+                f"{msg_pc}\n\nIngrese la clave de Administrador (por defecto 'RSA') para autorizar el respaldo:",
+                QLineEdit.Password,
+            )
+            if not ok or clave_ing.strip() != clave_esperada:
+                if ok:
+                    QMessageBox.critical(self, "Acceso Denegado", "Clave de Administrador incorrecta. No se generó el respaldo.")
+                return
 
         nombre_sug = f"respaldo_rsa_sismologia_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
         ruta_zip, _ = QFileDialog.getSaveFileName(
@@ -4419,14 +4629,15 @@ class Configurar_estructura_dia(QWidget):
 # 7. RESPALDO Y RESTAURACIÓN DEL PROGRAMA (ZIP - SOLO PC ADMINISTRADOR)
 # ==============================================================================
 
-CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src")
+CARPETAS_RESPALDO_PROGRAMA = ("datos", "modulos externos", "src", "iconos")
 CARPETAS_EXCLUIDAS_RESPALDO = {"__pycache__", "vw backup"}
 EXTENSIONES_EXCLUIDAS_RESPALDO = {".vwx", ".vwxw", ".vwt", ".mcd", ".pyc", ".pyo"}
 
 
 def recolectar_archivos_respaldo(raiz_origen: str):
     """
-    Recorre `datos/`, `modulos externos/` y `src/` dentro de `raiz_origen`
+    Recorre `datos/`, `modulos externos/`, `src/` e `iconos/` dentro de `raiz_origen`
+    (con búsqueda de contingencia en la raíz padre para datos e iconos si raiz_origen es procesamiento/)
     excluyendo carpetas de caché (`__pycache__`), respaldos Vectorworks (`VW Backup`)
     y extensiones excluidas (`.vwx`, `.vwxw`, `.vwt`, `.mcd`, `.pyc`, `.pyo`).
 
@@ -4439,8 +4650,15 @@ def recolectar_archivos_respaldo(raiz_origen: str):
 
     for carpeta_base in CARPETAS_RESPALDO_PROGRAMA:
         dir_objetivo = raiz_path / carpeta_base
+        es_externo_raiz = False
         if not dir_objetivo.is_dir():
-            continue
+            dir_alt = raiz_path.parent / carpeta_base
+            if dir_alt.is_dir():
+                dir_objetivo = dir_alt
+                es_externo_raiz = True
+            else:
+                continue
+
         for actual, subdirs, nombres in os.walk(dir_objetivo):
             subdirs_filtrados = []
             for d in subdirs:
@@ -4456,7 +4674,11 @@ def recolectar_archivos_respaldo(raiz_origen: str):
                     conteo_excluidos += 1
                     continue
                 ruta_abs = os.path.join(actual, nom)
-                ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
+                if es_externo_raiz:
+                    rel_dentro = os.path.relpath(ruta_abs, dir_objetivo).replace("\\", "/")
+                    ruta_rel = f"{carpeta_base}/{rel_dentro}"
+                else:
+                    ruta_rel = os.path.relpath(ruta_abs, raiz_path).replace("\\", "/")
                 archivos_incluir.append((ruta_abs, ruta_rel))
 
     return archivos_incluir, conteo_excluidos
@@ -4545,10 +4767,19 @@ class HiloRestaurarZip(QThread):
 
                 for idx, info in enumerate(entradas, start=1):
                     nombre_rel = info.filename.replace("\\", "/").lstrip("/")
-                    dest_abs = os.path.abspath(os.path.join(raiz_dest, *nombre_rel.split("/")))
+                    partes = nombre_rel.split("/")
+                    carpeta_raiz_zip = partes[0]
+
+                    # Si es iconos y se restaura dentro de procesamiento/, ubicar en el padre
+                    if carpeta_raiz_zip == "iconos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dest_abs = os.path.abspath(os.path.join(os.path.dirname(raiz_dest), *partes))
+                        raiz_permitida = os.path.dirname(raiz_dest)
+                    else:
+                        dest_abs = os.path.abspath(os.path.join(raiz_dest, *partes))
+                        raiz_permitida = raiz_dest
 
                     # Protección contra rutas maliciosas fuera de carpeta_destino (Zip Slip)
-                    if os.path.commonpath([raiz_dest, dest_abs]) != raiz_dest:
+                    if os.path.commonpath([raiz_permitida, dest_abs]) != raiz_permitida:
                         omitidos += 1
                         continue
 
@@ -4568,6 +4799,18 @@ class HiloRestaurarZip(QThread):
                     with zf.open(info, "r") as f_src, open(dest_abs, "wb") as f_dst:
                         shutil.copyfileobj(f_src, f_dst)
                     os.utime(dest_abs, (mtime_zip, mtime_zip))
+
+                    # Si se actualizó un archivo en datos/ y existe un directorio datos/ paralelo en la raíz
+                    if carpeta_raiz_zip == "datos" and os.path.basename(raiz_dest).lower() == "procesamiento":
+                        dir_datos_padre = os.path.join(os.path.dirname(raiz_dest), "datos")
+                        if os.path.isdir(dir_datos_padre):
+                            try:
+                                if not os.path.samefile(os.path.dirname(dest_abs), dir_datos_padre):
+                                    dest_espejo = os.path.join(dir_datos_padre, *partes[1:])
+                                    os.makedirs(os.path.dirname(dest_espejo), exist_ok=True)
+                                    shutil.copy2(dest_abs, dest_espejo)
+                            except Exception:
+                                pass
 
                     if existe_previo:
                         actualizados += 1
@@ -4630,8 +4873,8 @@ class Respaldar_programa(QWidget):
         v_bkp = QVBoxLayout(grp_backup)
         lbl_info_bkp = QLabel(
             f"<b>Origen:</b> <code>{self.raiz_proyecto}</code><br>"
-            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code> y <code>src/</code> "
-            "(respetando íntegramente su estructura de directorios).<br>"
+            "<b>Carpetas incluidas:</b> <code>datos/</code>, <code>modulos externos/</code>, <code>src/</code> "
+            "e <code>iconos/</code> (respetando íntegramente su estructura de directorios).<br>"
             "<b>Exclusiones automáticas:</b> GitHub/Agente, <code>datos/mapas/VW Backup/</code>, "
             "archivos de Vectorworks (<code>*.vwx</code>, <code>*.vwxw</code>, <code>*.vwt</code>, <code>*.mcd</code>) "
             "y caché Python (<code>__pycache__/</code>, <code>*.pyc</code>).",
@@ -4644,7 +4887,7 @@ class Respaldar_programa(QWidget):
         h_bkp_btn = QHBoxLayout()
         self.btn_crear_zip = QPushButton("Generar Respaldo ZIP (Guardar como...)", grp_backup)
         self.btn_crear_zip.setObjectName("btn_primario")
-        self.btn_crear_zip.setEnabled(autorizado_pc)
+        self.btn_crear_zip.setEnabled(True)
         self.btn_crear_zip.clicked.connect(self.ejecutar_respaldo_zip)
         h_bkp_btn.addWidget(self.btn_crear_zip)
         h_bkp_btn.addStretch()
@@ -4676,15 +4919,24 @@ class Respaldar_programa(QWidget):
         layout_raiz.addLayout(h_pie)
 
     def _establecer_controles_activos(self, habilitado: bool):
-        autorizado_pc, _, _ = verificar_permiso_respaldo_pc()
-        self.btn_crear_zip.setEnabled(habilitado and autorizado_pc)
+        self.btn_crear_zip.setEnabled(habilitado)
         self.btn_salir.setEnabled(habilitado)
 
     def ejecutar_respaldo_zip(self):
         autorizado_pc, _, msg_pc = verificar_permiso_respaldo_pc()
         if not autorizado_pc:
-            QMessageBox.warning(self, "Acceso Restringido", msg_pc)
-            return
+            cfg = cargar_config_local_pc()
+            clave_esperada = str(cfg.get("clave_administrador") or "RSA").strip()
+            clave_ing, ok = QInputDialog.getText(
+                self,
+                "Autorización de Administrador Requerida",
+                f"{msg_pc}\n\nIngrese la clave de Administrador (por defecto 'RSA') para autorizar el respaldo:",
+                QLineEdit.Password,
+            )
+            if not ok or clave_ing.strip() != clave_esperada:
+                if ok:
+                    QMessageBox.critical(self, "Acceso Denegado", "Clave de Administrador incorrecta. No se generó el respaldo.")
+                return
 
         nombre_sug = f"respaldo_rsa_sismologia_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
         ruta_zip, _ = QFileDialog.getSaveFileName(

@@ -12,6 +12,10 @@ ruta_librerias=os.path.dirname(__file__)
 ruta_proyecto=extraer_hasta_directorio(ruta_librerias, 'procesamiento')
 ruta_librerias = os.path.abspath(os.path.join(ruta_proyecto, 'src','librerias'))
 ruta_datos = os.path.abspath(os.path.join(ruta_proyecto, 'datos'))
+if not os.path.isdir(ruta_datos):
+    ruta_datos_raiz = os.path.abspath(os.path.join(ruta_proyecto, '..', 'datos'))
+    if os.path.isdir(ruta_datos_raiz):
+        ruta_datos = ruta_datos_raiz
 from obspy import UTCDateTime
 import csv
 import json
@@ -437,19 +441,39 @@ def obtencion_hora(archivo):
     #valor=0
 
     if archivo.lower().endswith('.sis'):
-        archivo=os.path.normpath(archivo)
-        partes_ruta = archivo.split(os.sep)
-        anio = int(partes_ruta[-5])  # AAAA
-        # Obtener fecha y hora desde el nombre del archivo
+        archivo = os.path.normpath(archivo)
         nombre_archivo = os.path.basename(archivo)
-        fecha_str, hora_str = nombre_archivo.split('.')[0].split('_')  # 'AAMMDD', 'hhmmss'
-        mm = int(fecha_str[2:4])
-        dd = int(fecha_str[4:6])
-        hh = int(hora_str[0:2])
-        minu = int(hora_str[2:4])
-        ss = int(hora_str[4:6])
+        partes_nombre = nombre_archivo.split('.')[0].split('_')
+        fecha_str = partes_nombre[0]
+        hora_str = partes_nombre[1] if len(partes_nombre) > 1 else '000000'
+
+        # Determinar fecha y año a partir del nombre del archivo
+        if len(fecha_str) == 8 and fecha_str.isdigit():
+            anio = int(fecha_str[:4])
+            mm = int(fecha_str[4:6])
+            dd = int(fecha_str[6:8])
+        elif len(fecha_str) >= 6 and fecha_str[:6].isdigit():
+            aa = int(fecha_str[:2])
+            anio = 1900 + aa if aa >= 90 else 2000 + aa
+            mm = int(fecha_str[2:4])
+            dd = int(fecha_str[4:6])
+        else:
+            partes_ruta = archivo.split(os.sep)
+            anio = int(partes_ruta[-5]) if len(partes_ruta) >= 5 and partes_ruta[-5].isdigit() else 2026
+            mm = int(fecha_str[2:4]) if len(fecha_str) >= 4 and fecha_str[2:4].isdigit() else 1
+            dd = int(fecha_str[4:6]) if len(fecha_str) >= 6 and fecha_str[4:6].isdigit() else 1
+
+        hh = int(hora_str[0:2]) if len(hora_str) >= 2 and hora_str[0:2].isdigit() else 0
+        minu = int(hora_str[2:4]) if len(hora_str) >= 4 and hora_str[2:4].isdigit() else 0
+        ss = int(hora_str[4:6]) if len(hora_str) >= 6 and hora_str[4:6].isdigit() else 0
         fecha_utc = UTCDateTime(anio, mm, dd, hh, minu, ss)
         return fecha_utc
+
+    if archivo.lower().endswith('.mseed'):
+        archivo = archivo[:-6]
+    nombre_limpio = os.path.basename(archivo).replace('_', '')
+    if len(nombre_limpio) >= 12 and nombre_limpio[-12:].isdigit():
+        archivo = nombre_limpio[-12:]
 
     aux=len(archivo)
     if aux==12:
