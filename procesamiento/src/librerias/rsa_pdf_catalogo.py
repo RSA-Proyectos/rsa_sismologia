@@ -1330,6 +1330,7 @@ def imprimir_reporte_especial_estaciones(
             'total_eventos': 0
         }
 
+    directorio_trabajo = str(directorio_trabajo).rstrip('/\\') + '/'
     indices_set = set(int(x) for x in indices_estaciones_seleccionadas)
     datos_est = parametros_estaciones()
     tipo_canal = datos_est.get('SENSOR', [])
@@ -1337,6 +1338,12 @@ def imprimir_reporte_especial_estaciones(
     n_estaciones = len(codigos_est)
 
     raiz = arbol.getroot() if hasattr(arbol, 'getroot') else arbol
+
+    def _normalizar_base_sis(id_str: str) -> str:
+        s = os.path.splitext(str(id_str).strip())[0].replace('_', '')
+        if len(s) == 12:
+            return '20' + s
+        return s
 
     # 1. Agrupar e indexar soluciones del catálogo por sismo (RSA, IGEPN, USGS, etc.)
     mapa_soluciones = {}
@@ -1360,10 +1367,10 @@ def imprimir_reporte_especial_estaciones(
     for g in grupos_eventos:
         s_id = str(g[0][IDX_EVENTO]).strip()
         s_base = os.path.splitext(s_id)[0].replace('_', '')
-        if s_base not in mapa_soluciones:
-            mapa_soluciones[s_base] = g
-        if s_id not in mapa_soluciones:
-            mapa_soluciones[s_id] = g
+        s_norm = _normalizar_base_sis(s_id)
+        mapa_soluciones[s_norm] = g
+        mapa_soluciones[s_base] = g
+        mapa_soluciones[s_id] = g
 
     # 2. Construir lista unificada de candidatos combinando matriz diaria (eventos) y catálogo
     tipo_filtro_limpio = tipo_evento_filtro.strip().upper()
@@ -1378,16 +1385,16 @@ def imprimir_reporte_especial_estaciones(
             sis_id = str(ev_row[1]).strip()
             if not sis_id.lower().endswith('.sis'):
                 continue
-            sis_base = os.path.splitext(sis_id)[0].replace('_', '')
-            if sis_base in vistos_sis:
+            sis_norm = _normalizar_base_sis(sis_id)
+            if sis_norm in vistos_sis:
                 continue
-            vistos_sis.add(sis_base)
+            vistos_sis.add(sis_norm)
 
             tipo_ev_real = str(ev_row[2]).strip()
             if tipo_filtro_limpio != 'TODOS' and tipo_ev_real.upper() != tipo_filtro_limpio:
                 continue
 
-            grupo = mapa_soluciones.get(sis_base) or mapa_soluciones.get(sis_id)
+            grupo = mapa_soluciones.get(sis_norm) or mapa_soluciones.get(sis_id)
             if not grupo:
                 try:
                     utc_ev = obtencion_hora(sis_id)
@@ -1433,10 +1440,10 @@ def imprimir_reporte_especial_estaciones(
     # Fuente B: Catálogo hipocentral (para sismos no presentes en eventos o si eventos es None)
     for grupo in grupos_eventos:
         sis_id = grupo[0][IDX_EVENTO]
-        sis_base = os.path.splitext(sis_id)[0].replace('_', '')
-        if sis_base in vistos_sis:
+        sis_norm = _normalizar_base_sis(sis_id)
+        if sis_norm in vistos_sis:
             continue
-        vistos_sis.add(sis_base)
+        vistos_sis.add(sis_norm)
 
         ruta_sismo = os.path.join(directorio_trabajo, sis_id)
         directorios = obtener_directorios(ruta_sismo)
@@ -1469,8 +1476,10 @@ def imprimir_reporte_especial_estaciones(
                 for row in lector:
                     if len(row) > 2:
                         id_fila = str(row[1]).strip()
-                        id_fila_limpio = os.path.splitext(id_fila)[0].replace('_', '')
-                        if id_fila == sis_id or id_fila_limpio == sis_base:
+                        if not id_fila:
+                            continue
+                        id_fila_norm = _normalizar_base_sis(id_fila)
+                        if id_fila == sis_id or id_fila_norm == sis_norm or id_fila_norm[2:] == sis_norm[2:]:
                             evento_csv_fila = row
                             break
         except Exception:
@@ -1597,8 +1606,15 @@ def imprimir_reporte_especial_estaciones(
             'total_eventos': 0
         }
 
-    # 3. Configurar banderas maestras en modo limpio para informe por estaciones
-    banderas = {
+    # 3. Derivar banderas maestras exactamente igual que los otros reportes oficiales
+    #    y desactivar únicamente los diagnósticos internos en las hojas de detalle
+    banderas = derivar_banderas_desde_modo(
+        MODO_OFICIAL_DETALLADO,
+        mapa_=mapa_,
+        bandera_firma=0,
+        bandera_relleno=True,
+    )
+    banderas.update({
         'codigo_modo': 'M_ESTACIONES',
         'nombre_modo': 'Reporte Especial por Estaciones',
         'es_periodo': True,
@@ -1609,55 +1625,100 @@ def imprimir_reporte_especial_estaciones(
         'mostrar_lineas_fases': False,         # Sin marcas de arribo P, S ni Coda
         'mostrar_cabecera_interna_rms': False, # Sin cabecera técnica con responsable ni RMS
         'graficar_todas_estaciones_mseed': False,
-        'tipo_institucional': 'OFICIAL',
-        'formato_portada': 1,
-        'bandera_relleno': True,
-    }
+    })
 
-    # 4. Iniciar documento ReportLab
-    os.makedirs(os.path.dirname(os.path.abspath(archivo_pdf)), exist_ok=True)
-    lienzo = canvas.Canvas(archivo_pdf, pagesize=A4)
-
-    # 5. Portada inicial con mapa cartográfico y lista de sismos calificados
-    datos_mapa = mapa_configuracion(mapa_, tipo_mapa)
+    # 4. Configuración de mapa y layout físico (mismo algoritmo que imprimir_reporte_general)
+    datos_mapa      = mapa_configuracion(mapa_, tipo_mapa)
     mapa_despliegue = datos_mapa[0]
-    coordenadas = datos_mapa[1]
-    salto = datos_mapa[2]
+    coordenadas     = datos_mapa[1]
+    salto           = datos_mapa[2]
     estaciones_info = datos_mapa[4]
 
     layout = normalizar_layout_por_institucional(banderas['tipo_institucional'])
-    tamanio = layout['tamanio']
-    marca_agua = layout['marca_agua']
+    tamanio      = layout['tamanio']
+    marca_agua   = layout['marca_agua']
     pos_x, pos_y = layout['pos_caja']
+    tipo_formato = banderas.get('formato_portada', 0)
 
+    # Construir vector de sismos y conteos reales por clasificación para caja_simbologia
     vector_sismos = []
+    conteo_tipos = {
+        'SISMO': 0, 'FF': 0, 'FC': 0, 'TELESISMO': 0,
+        'LOCAL': 0, 'INDEFINIDO': 0, 'RUIDO': 0,
+    }
     for ev in eventos_calificados:
         fila_cat = ev['grupo'][0]
+        tipo_ev_real = str(ev['fila_csv'][2]).strip().upper() if ev.get('fila_csv') and len(ev['fila_csv']) > 2 else 'SISMO'
+        if tipo_ev_real == 'SISMO':
+            conteo_tipos['SISMO'] += 1
+        elif tipo_ev_real == 'FF':
+            conteo_tipos['FF'] += 1
+        elif tipo_ev_real == 'FC':
+            conteo_tipos['FC'] += 1
+        elif tipo_ev_real == 'TELESISMO':
+            conteo_tipos['TELESISMO'] += 1
+        elif tipo_ev_real in ('EVENTO_LOCAL', 'CONTROL'):
+            conteo_tipos['LOCAL'] += 1
+        elif tipo_ev_real == 'INDEFINIDO':
+            conteo_tipos['INDEFINIDO'] += 1
+        else:
+            conteo_tipos['RUIDO'] += 1
+
+        if str(fila_cat[IDX_INDICE]).strip() == '00000000000000':
+            continue
         try:
             lat = float(fila_cat[IDX_LATITUD])
             lon = float(fila_cat[IDX_LONGITUD])
             prf = -1.0 * float(fila_cat[IDX_PROFUNDIDAD])
             mag = float(fila_cat[IDX_MAGNITUD])
-            red = 0 if fila_cat[IDX_FUENTE] == "RSA" else 1
-            vector_sismos.append([lat, lon, prf, mag, red, fila_cat[IDX_EVENTO]])
         except (ValueError, IndexError):
             continue
+        if abs(lat) < 1e-4 and abs(lon) < 1e-4:
+            continue
+        red = 0 if str(fila_cat[IDX_FUENTE]).strip().upper() == "RSA" else 1
+        vector_sismos.append([lat, lon, prf, mag, red, fila_cat[IDX_EVENTO]])
 
-    titulo_portada = "REPORTE SISMOLÓGICO ESPECIAL POR ESTACIONES"
-    nombres_sel = [f"{codigos_est[i]}" for i in sorted(indices_set) if i < len(codigos_est)]
-    subtitulo_completo = f"{subtitulo_reporte}  |  Estaciones: {', '.join(nombres_sel[:8])}{'...' if len(nombres_sel) > 8 else ''}"
-
-    lienzo = formato(marca_agua, A4, titulo_portada, subtitulo_completo, 1, lienzo)
-    lienzo = mapa(lienzo, mapa_despliegue, tamanio, coordenadas, salto, 1)
-    if vector_sismos:
-        lienzo = dibujo_sismos_(lienzo, vector_sismos, coordenadas, tamanio, mapa_, True, True, banderas=banderas)
-
-    # Simbología oficial estándar en la portada
     resumen_caja = [
         ["DIA", "SISMO", "FF", "FC", "TELESISMO", "Evento Local", "INDEFINIDO", "Ruido"],
-        ["Total:", len(vector_sismos), 0, 0, 0, 0, 0, 0]
+        [
+            "Total:",
+            conteo_tipos['SISMO'],
+            conteo_tipos['FF'],
+            conteo_tipos['FC'],
+            conteo_tipos['TELESISMO'],
+            conteo_tipos['LOCAL'],
+            conteo_tipos['INDEFINIDO'],
+            conteo_tipos['RUIDO'],
+        ],
     ]
-    lienzo = caja_simbologia(lienzo, resumen_caja, vector_sismos, (pos_x, pos_y), mapa_, True, True, banderas=banderas)
+
+    # 5. Crear lienzo y generar primera hoja (portada idéntica a imprimir_reporte_general)
+    os.makedirs(os.path.dirname(os.path.abspath(archivo_pdf)), exist_ok=True)
+    lienzo = canvas.Canvas(archivo_pdf, pagesize=A4)
+    titulo_portada = "SISMICIDAD REGIONAL REGISTRADA"
+
+    lienzo = formato(marca_agua, A4, titulo_portada, subtitulo_reporte, tipo_formato, lienzo)
+    lienzo = mapa(lienzo, mapa_despliegue, tamanio, coordenadas, salto, 1)
+    lienzo = dibujo_sismos_(
+        lienzo,
+        vector_sismos,
+        coordenadas,
+        tamanio,
+        mapa_,
+        banderas['es_periodo'],
+        banderas['bandera_relleno'],
+        banderas=banderas,
+    )
+    lienzo = caja_simbologia(
+        lienzo,
+        resumen_caja,
+        vector_sismos,
+        (pos_x, pos_y),
+        mapa_,
+        banderas['es_periodo'],
+        banderas['bandera_relleno'],
+        banderas=banderas,
+    )
     lienzo.showPage()
 
     # 5.1 Catálogo / Lista completa de sismos calificados (formato tabular estándar RSA)

@@ -369,24 +369,33 @@ def obtener_directorios(ruta_archivo: str) -> dict:
     directorio_acelerogramas   = directorio_base / "acelerogramas"
 
     # -------------- nombres de archivo derivados -------------------------- #
-    prefijo_fecha = fecha_larga if usar_4digitos else fecha_corta
     sufijo_mseed  = f"_{anio}{mes}{dia}_{hora}{minuto}{segundo}.mseed"
 
-    archivo_estaciones      = directorio_base / f"{prefijo_fecha}_estaciones.csv"
-    archivo_comportamiento  = directorio_base / f"{prefijo_fecha}_est.csv"
-    archivo_csv             = directorio_base / f"{prefijo_fecha}000000.csv"
-    archivo_rep             = directorio_base / f"{prefijo_fecha}000000_rep.csv"
-    archivo_cat             = directorio_base / f"{prefijo_fecha}000000_cat.csv"
-    archivo_xml             = directorio_base / f"{prefijo_fecha}000000.xml"
-    archivo_res             = directorio_base / f"{prefijo_fecha}000000_res.csv"
-    archivo_reporte_dia     = directorio_base / f"{prefijo_fecha}000000_rep.pdf"
-    archivo_resp            = directorio_reportes / f"{prefijo_fecha}_resp.csv"
-    archivo_tiempos         = directorio_reportes / f"{prefijo_fecha}_tiempos.csv"
-    archivo_marcas          = directorio_base / f"{prefijo_fecha}000000_marcas.json"
-    archivo_auxiliar        = directorio_base / f"{prefijo_fecha}_aux.csv"
+    def _resolver_ruta_existente(base_dir, f_larga, f_corta, sufijo, preferir_4d):
+        p_largo = base_dir / f"{f_larga}{sufijo}"
+        p_corto = base_dir / f"{f_corta}{sufijo}"
+        if p_largo.exists():
+            return p_largo
+        elif p_corto.exists():
+            return p_corto
+        return p_largo if preferir_4d else p_corto
+
+    archivo_estaciones      = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "_estaciones.csv", usar_4digitos)
+    archivo_comportamiento  = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "_est.csv", usar_4digitos)
+    archivo_csv             = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "000000.csv", usar_4digitos)
+    archivo_rep             = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "000000_rep.csv", usar_4digitos)
+    archivo_cat             = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "000000_cat.csv", usar_4digitos)
+    archivo_xml             = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "000000.xml", usar_4digitos)
+    archivo_res             = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "000000_res.csv", usar_4digitos)
+    archivo_reporte_dia     = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "000000_rep.pdf", usar_4digitos)
+    archivo_resp            = _resolver_ruta_existente(directorio_reportes, fecha_larga, fecha_corta, "_resp.csv", usar_4digitos)
+    archivo_tiempos         = _resolver_ruta_existente(directorio_reportes, fecha_larga, fecha_corta, "_tiempos.csv", usar_4digitos)
+    archivo_marcas          = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "000000_marcas.json", usar_4digitos)
+    archivo_auxiliar        = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "_aux.csv", usar_4digitos)
+    prefijo_fecha           = fecha_larga if usar_4digitos else fecha_corta
     archivo_proc            = directorio_procesamiento / f"{prefijo_fecha}_{hora}{minuto}{segundo}_proc.csv"
-    archivo_analogico       = directorio_base / f"{prefijo_fecha}_analogico.csv"
-    archivo_digital         = directorio_base / f"{prefijo_fecha}_digital.csv"
+    archivo_analogico       = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "_analogico.csv", usar_4digitos)
+    archivo_digital         = _resolver_ruta_existente(directorio_base, fecha_larga, fecha_corta, "_digital.csv", usar_4digitos)
     archivo_referencia      = timestamp_largo if usar_4digitos else timestamp_corto
 
     # ---------------------------- salida ----------------------------------- #

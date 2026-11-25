@@ -89,17 +89,6 @@ class Inicio_proceso(QMainWindow):
             }
         """)
 
-        # Opción configurable en el propio programa para recordar el responsable y ruta habitual de este PC
-        self.chk_recordar_pc = QCheckBox("Recordar responsable y ruta en este PC", self.cmbx_resposables_2)
-        self.chk_recordar_pc.setChecked(True)
-        self.chk_recordar_pc.setToolTip(
-            "Guarda el responsable y el directorio DIA seleccionados como configuración "
-            "predeterminada local de este equipo (config_local_pc.json, excluido de Git)."
-        )
-        self.chk_recordar_pc.setStyleSheet("font-weight: normal; font-size: 9pt; color: #263238;")
-        if hasattr(self, 'layoutGrupoParams'):
-            self.layoutGrupoParams.insertWidget(3, self.chk_recordar_pc)
-
         layout_principal.addWidget(widget_formulario, 0)
 
         # Panel derecho: Dashboard Nativo de Estado de Jornada
@@ -127,10 +116,11 @@ class Inicio_proceso(QMainWindow):
 
         # Cargar configuración local del PC (creándola si no existe)
         self.config_pc = cargar_config_local_pc()
-        if directorio_trabajo and directorio_trabajo != 'G:/Mi unidad/DIA/' and os.path.exists(directorio_trabajo):
+        dir_defecto_seguro = "C:/DIA/" if os.path.exists("C:/DIA") else "G:/Mi unidad/DIA/"
+        if directorio_trabajo and os.path.exists(directorio_trabajo):
             dir_precarga = directorio_trabajo
         else:
-            dir_precarga = self.config_pc.get("directorio_trabajo") or directorio_trabajo or "G:/Mi unidad/DIA/"
+            dir_precarga = self.config_pc.get("directorio_trabajo") or directorio_trabajo or dir_defecto_seguro
         resp_precarga = (
             responsable
             if (responsable and responsable != "RSA")
@@ -214,16 +204,6 @@ class Inicio_proceso(QMainWindow):
         else:
             self.periodo = ""
 
-        # Actualizar archivo de precarga local del PC (config_local_pc.json)
-        datos_memoria_pc = {
-            "ultimo_dia_procesado": self.date.toString("yyyy-MM-dd"),
-            "ultimo_periodo_procesado": self.periodo or OPCION_TODO_EL_DIA,
-        }
-        if hasattr(self, 'chk_recordar_pc') and self.chk_recordar_pc.isChecked():
-            datos_memoria_pc["responsable_habitual"] = self.responsable
-            datos_memoria_pc["directorio_trabajo"] = self.directorio_trabajo
-        self.config_pc = guardar_config_local_pc(datos_memoria_pc)
-
         self.fue_inicializado = True
         self.inicializado.emit(self.archivo, self.directorio_trabajo, self.responsable, self.periodo)
         self.close()
@@ -234,8 +214,6 @@ class Inicio_proceso(QMainWindow):
             if not folderpath.endswith('/') and not folderpath.endswith('\\'):
                 folderpath = folderpath + '/'
             self.directorio_trabajo = folderpath
-            if hasattr(self, 'chk_recordar_pc') and self.chk_recordar_pc.isChecked():
-                self.config_pc = guardar_config_local_pc({"directorio_trabajo": self.directorio_trabajo})
             self.showDate(self.dia.selectedDate())
 
     def limpiar_estado(self):
@@ -276,8 +254,6 @@ class Inicio_proceso(QMainWindow):
 
     def cambio_responsable(self, texto):
         self.responsable = texto
-        if hasattr(self, 'chk_recordar_pc') and self.chk_recordar_pc.isChecked() and texto:
-            self.config_pc = guardar_config_local_pc({"responsable_habitual": texto})
         self.desplegar_mensaje()
 
     def desplegar_mensaje(self):

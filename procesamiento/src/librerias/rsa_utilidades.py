@@ -647,7 +647,7 @@ def obtener_datos_reporte(fecha_ini, fecha_fin, directorio_trabajo, mapa_="Ecuad
 def generar_directorios_unidades_basicas(
     fecha_ini,
     fecha_fin,
-    directorio_trabajo="G:/Mi unidad/DIA",
+    directorio_trabajo="C:/DIA",
     verificar_existencia=False,
     detallar=False,
     nivel_maximo="ANIO",
@@ -826,7 +826,7 @@ def generar_directorios_unidades_basicas(
 def consolidar_archivos_periodo_ecuador(
     fecha_ini,
     fecha_fin,
-    directorio_trabajo="G:/Mi unidad/DIA",
+    directorio_trabajo="C:/DIA",
     tipo_forzado=None,
     nivel_maximo="DIA",
 ):
@@ -1098,7 +1098,7 @@ def _reemplazar_dia_en_periodo_emitido(
     prefijo_salida: str,
     fecha_d: date,
     fecha_ini_periodo: date,
-    directorio_trabajo: str = "G:/Mi unidad/DIA",
+    directorio_trabajo: str = "C:/DIA",
 ) -> bool:
     """
     Abre los archivos ya emitidos de una unidad de tiempo mayor (Semana ISO, Mes o Año)
@@ -1284,7 +1284,7 @@ def _reemplazar_dia_en_periodo_emitido(
     return True
 
 
-def actualizar_periodos_emitidos_desde_fecha(fecha_referencia, directorio_trabajo="G:/Mi unidad/DIA"):
+def actualizar_periodos_emitidos_desde_fecha(fecha_referencia, directorio_trabajo="C:/DIA"):
     """
     Propaga automáticamente en cascada (Semana ISO -> Mes -> Año) cualquier cambio
     ocurrido en `fecha_referencia`, abriendo los catálogos y archivos ya emitidos en
@@ -1407,7 +1407,7 @@ def cargar_config_local_pc() -> dict:
     config_defecto = {
         "nombre_equipo": nombre_pc,
         "responsable_habitual": "RSA",
-        "directorio_trabajo": "G:/Mi unidad/DIA/",
+        "directorio_trabajo": "C:/DIA/",
         "ultimo_dia_procesado": datetime.today().strftime("%Y-%m-%d"),
         "ultimo_periodo_procesado": "00:00 - 12:00",
         "pc_autorizado_config": True,
@@ -1460,7 +1460,7 @@ def guardar_config_local_pc(datos_nuevos: dict) -> dict:
 
     actual.setdefault("nombre_equipo", nombre_pc)
     actual.setdefault("responsable_habitual", "RSA")
-    actual.setdefault("directorio_trabajo", "G:/Mi unidad/DIA/")
+    actual.setdefault("directorio_trabajo", "C:/DIA/")
     actual.setdefault("ultimo_dia_procesado", datetime.today().strftime("%Y-%m-%d"))
     actual.setdefault("ultimo_periodo_procesado", "00:00 - 12:00")
     actual.setdefault("pc_autorizado_config", True)

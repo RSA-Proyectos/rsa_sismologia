@@ -249,7 +249,13 @@ class Reporte_periodo(QMainWindow):
         ruta_ui = os.path.abspath(ruta_ui)
         uic.loadUi(ruta_ui, self)
         
-        self.directorio_trabajo = directorio_trabajo
+        # Asignar directamente el directorio de trabajo seleccionado por el usuario
+        if directorio_trabajo and os.path.exists(directorio_trabajo):
+            self.directorio_trabajo = directorio_trabajo
+        elif os.path.exists('C:/DIA'):
+            self.directorio_trabajo = 'C:/DIA'
+        else:
+            self.directorio_trabajo = directorio_trabajo or 'C:/DIA'
         self.archivo=archivo
         self.responsable=responsable
         self.horario=horario
@@ -349,6 +355,14 @@ class Reporte_periodo(QMainWindow):
             self.grupo_rb_periodo.addButton(self.rb_semana, 2)
             self.grupo_rb_periodo.addButton(self.rb_periodo, 3)
             self.grupo_rb_periodo.buttonClicked.connect(self._actualizar_controles_periodo)
+            if hasattr(self, 'dateEdit_ini'):
+                self.dateEdit_ini.dateChanged.connect(self._al_cambiar_fecha_manual)
+            if hasattr(self, 'dateEdit_fin'):
+                self.dateEdit_fin.dateChanged.connect(self._al_cambiar_fecha_manual)
+            # Por defecto activar Rango de Fechas para permitir consultar cualquier período sin restricción
+            if hasattr(self, 'rb_periodo'):
+                self.rb_periodo.setChecked(True)
+                self._actualizar_controles_periodo()
 
         # 1B) Grupo excluyente para la fuente de consolidación (_cat.csv existente por defecto vs Día por día)
         self.grupo_rb_fuente = QtWidgets.QButtonGroup(self)
@@ -937,6 +951,12 @@ class Reporte_periodo(QMainWindow):
         """Muestra el estado actual del catálogo, filtros y archivos generados en el cuadro textEdit."""
         if hasattr(self, 'textEdit') and self.textEdit is not None:
             self.textEdit.setPlainText(mensaje)
+
+    def _al_cambiar_fecha_manual(self, *_args):
+        """Activa automáticamente el modo Rango de Fechas cuando el usuario edita los calendarios."""
+        if hasattr(self, 'rb_periodo') and not self.rb_periodo.isChecked():
+            self.rb_periodo.setChecked(True)
+            self._actualizar_controles_periodo()
 
     def _actualizar_controles_periodo(self, *_args):
         """
@@ -1884,6 +1904,11 @@ class Reporte_periodo(QMainWindow):
                         if os.path.isfile(ruta_dat):
                             d_dat = lectura_archivo(ruta_dat)
                             self.eventos_reporte.extend(d_dat[1:] if d_dat else [])
+                        ruta_csv_matriz = f"{prefijo}.csv"
+                        if os.path.isfile(ruta_csv_matriz):
+                            d_mat = lectura_archivo(ruta_csv_matriz)
+                            if d_mat:
+                                self.eventos.extend(d_mat)
                         if os.path.isfile(ruta_res):
                             self.resumen.extend(lectura_resumen(ruta_res))
                         if os.path.isfile(ruta_resp):
@@ -2073,8 +2098,10 @@ class Reporte_periodo(QMainWindow):
             self.eventos = lectura_archivo(directorios['archivo_csv'])
             print(directorios['archivo_csv'])
 
-            for evento in self.eventos[1:]:
-                if evento[1] == evento_id:
+            for evento in (self.eventos[1:] if self.eventos else []):
+                id_ev_mat = str(evento[1]).strip() if len(evento) > 1 else ""
+                id_ev_limpio = id_ev_mat.replace("_", "").replace(".sis", "")
+                if id_ev_mat == evento_id or id_ev_limpio == evento_sin_guion or id_ev_limpio[2:] == evento_sin_guion:
                     linea_evento = [evento_id]
                     for idx_estacion in self.estaciones_seleccionadas:
                         if evento[idx_estacion + 3] != "-":

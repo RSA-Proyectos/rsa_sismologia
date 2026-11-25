@@ -44,6 +44,7 @@ from subprogramas.reporte_acumulado import Reporte_periodo
 from subprogramas.reporte_enjambre import Reporte_enjambre
 from subprogramas.inicio import Inicio_proceso
 from subprogramas.otras_redes import Otras_redes
+from subprogramas.reconstruccion_eventos import Reconstruccion_eventos
 from subprogramas.configuracion_sistema import (
     Configurar_estaciones,
     Configurar_analogicas,
@@ -90,7 +91,7 @@ class VentanaPrincipal(QMainWindow):
 
         # Cargar precarga / memoria local del PC (config_local_pc.json)
         self.config_pc = cargar_config_local_pc()
-        self.directorio_trabajo = self.config_pc.get('directorio_trabajo') or 'G:/Mi unidad/DIA/'
+        self.directorio_trabajo = self.config_pc.get('directorio_trabajo') or ('C:/DIA/' if os.path.exists('C:/DIA') else 'G:/Mi unidad/DIA/')
         self.responsable = self.config_pc.get('responsable_habitual') or 'RSA'
         self.periodo = self.config_pc.get('ultimo_periodo_procesado') or ''
         self.archivo = os.path.join(self.directorio_trabajo, datetime.today().strftime("%Y%m%d") + "000000")
@@ -410,6 +411,12 @@ class VentanaPrincipal(QMainWindow):
         self.accion_usgs.triggered.connect(self.ingresar_USGS)
         self.menu_ingreso_datos.addAction(self.accion_usgs)
 
+        self.menu_ingreso_datos.addSeparator()
+
+        self.accion_reconstruccion_eventos = QAction('Reconstrucción de eventos', self)
+        self.accion_reconstruccion_eventos.triggered.connect(self.reconstruccion_eventos)
+        self.menu_ingreso_datos.addAction(self.accion_reconstruccion_eventos)
+
         ##########################################################################################
         #  Menú cuatro: Informes (Habilitado en modo Período)
         ##########################################################################################
@@ -667,6 +674,20 @@ class VentanaPrincipal(QMainWindow):
         )
         if success:
             print("Ingreso USGS cargado exitosamente.")
+
+    def reconstruccion_eventos(self):
+        """Cargar subprograma de Reconstrucción de Eventos por Período"""
+        widget_reconst = Reconstruccion_eventos(
+            self.archivo,
+            self.directorio_trabajo,
+            self.responsable,
+            self.periodo,
+        )
+        self.cargar_widget_menu(
+            widget_reconst,
+            'PROCESAMIENTO INTEGRADO - RECONSTRUCCIÓN DE EVENTOS POR PERÍODO',
+            True,
+        )
 
     ##########################################################################################
     #  Menú tres: Informes

@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>VentanaReconstruccionEventos</class>
+ <widget class="QMainWindow" name="VentanaReconstruccionEventos">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>880</width>
+    <height>620</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>RECONSTRUCCIÓN DE EVENTOS POR PERÍODO - RSA</string>
+  </property>
+  <widget class="QWidget" name="widget_central">
+   <layout class="QVBoxLayout" name="layout_principal">
+    <property name="spacing">
+     <number>10</number>
+    </property>
+    <property name="leftMargin">
+     <number>14</number>
+    </property>
+    <property name="topMargin">
+     <number>12</number>
+    </property>
+    <property name="rightMargin">
+     <number>14</number>
+    </property>
+    <property name="bottomMargin">
+     <number>12</number>
+    </property>
+    <item>
+     <widget class="QGroupBox" name="grupo_periodo">
+      <property name="title">
+       <string>1. Período y Opciones de Reconstrucción (AAAAMMDD_aux.csv + AAAAMMDD000000.csv)</string>
+      </property>
+      <layout class="QGridLayout" name="layout_periodo">
+       <item row="0" column="0">
+        <widget class="QLabel" name="lbl_directorio_titulo">
+         <property name="text">
+          <string>Directorio de trabajo:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1" colspan="3">
+        <widget class="QLabel" name="lbl_directorio_valor">
+         <property name="text">
+          <string>C:/DIA/</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font-weight: bold; color: #1565C0;</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="lbl_fecha_inicio">
+         <property name="text">
+          <string>Fecha inicio:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QDateEdit" name="dateEdit_inicio">
+         <property name="calendarPopup">
+          <bool>true</bool>
+         </property>
+         <property name="displayFormat">
+          <string>dd/MM/yyyy</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="2">
+        <widget class="QLabel" name="lbl_fecha_fin">
+         <property name="text">
+          <string>Fecha fin:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="3">
+        <widget class="QDateEdit" name="dateEdit_fin">
+         <property name="calendarPopup">
+          <bool>true</bool>
+         </property>
+         <property name="displayFormat">
+          <string>dd/MM/yyyy</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0" colspan="2">
+        <widget class="QCheckBox" name="chk_solo_en_csv">
+         <property name="text">
+          <string>Solo reconstruir eventos presentes en AAAAMMDD000000.csv</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+         <property name="toolTip">
+          <string>Usa las ventanas de tiempo de AAAAMMDD_aux.csv pero únicamente para los eventos confirmados en AAAAMMDD000000.csv y respetando su clasificación definitiva.</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="2" colspan="2">
+        <widget class="QCheckBox" name="chk_sobrescribir">
+         <property name="text">
+          <string>Sobrescribir archivos .mseed existentes</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+         <property name="toolTip">
+          <string>Si se desmarca, solo se extraen los archivos faltantes (más rápido para completar estaciones recuperadas).</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="0" colspan="4">
+        <widget class="QCheckBox" name="chk_reconstruir_sis">
+         <property name="text">
+          <string>Reconstruir también archivos .sis (solo sismos / estaciones analógicas)</string>
+         </property>
+         <property name="checked">
+          <bool>false</bool>
+         </property>
+         <property name="toolTip">
+          <string>Opcional: genera los binarios .sis en la carpeta dia/ para eventos clasificados como SISMO. Desactivado por defecto para estaciones digitales.</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="grupo_progreso">
+      <property name="title">
+       <string>2. Progreso de Reconstrucción</string>
+      </property>
+      <layout class="QVBoxLayout" name="layout_progreso">
+       <item>
+        <widget class="QLabel" name="lbl_estado_actual">
+         <property name="text">
+          <string>Listo. Seleccione el período y presione 'Reconstruir Período'.</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QProgressBar" name="barra_progreso_dias">
+         <property name="value">
+          <number>0</number>
+         </property>
+         <property name="format">
+          <string>Días: %v / %m (%p%)</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QProgressBar" name="barra_progreso_eventos">
+         <property name="value">
+          <number>0</number>
+         </property>
+         <property name="format">
+          <string>Eventos del día: %v / %m (%p%)</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="grupo_bitacora">
+      <property name="title">
+       <string>3. Bitácora de Reconstrucción</string>
+      </property>
+      <layout class="QVBoxLayout" name="layout_bitacora">
+       <item>
+        <widget class="QPlainTextEdit" name="txt_bitacora">
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font-family: Consolas, 'Courier New', monospace; font-size: 9pt;</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="layout_botones">
+      <item>
+       <spacer name="espaciador_izq">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_reconstruir">
+        <property name="minimumSize">
+         <size>
+          <width>180</width>
+          <height>34</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">font-weight: bold; background-color: #1565C0; color: white; padding: 6px 14px;</string>
+        </property>
+        <property name="text">
+         <string>Reconstruir Período</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_cancelar">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>110</width>
+          <height>34</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>Cancelar</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_salir">
+        <property name="minimumSize">
+         <size>
+          <width>110</width>
+          <height>34</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>Salir</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

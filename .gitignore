@@ -50,6 +50,7 @@ dist/
 *.egg-info/
 *.spec
 
-Spyder.bat
-Spyder.bat
+# Accesos directos y lanzadores locales por computadora
+*.lnk
 *.bat
+desktop.ini

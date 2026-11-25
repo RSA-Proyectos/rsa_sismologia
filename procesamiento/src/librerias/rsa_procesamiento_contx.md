@@ -52,7 +52,8 @@ graph TD
 | Función | Firma | Descripción |
 |---|---|---|
 | `ordenar_y_eliminar_duplicados` | `(catalogo, indice, bandera=True) -> list` | Ordena cronológicamente, descarta entradas redundantes y renumera la columna 0 de forma segura para listas y tuplas. |
-| `extraer_dia` | `(eventos, directorios, parametros, ...)` | Ejecuta la extracción masiva de trazas sismológicas para cada evento confirmado. |
+| `extraer_dia` | `(archivo, responsable, bandera_todo)` | Ejecuta la extracción masiva diaria respaldando primero las clasificaciones y filas exclusivas de `AAAAMMDD000000.csv` antes de recorrer `_aux.csv`. |
+| `reconstruir_eventos_dia` | `(archivo, responsable='RSA', sobrescribir_existentes=True, solo_presentes_en_csv=True, reconstruir_sis=False, ...)` | Reconstruye `.mseed` (y opcionalmente `.sis`) para un día usando ventanas de `_aux.csv` y la clasificación oficial y tokens `EEEECBFFIISS` de `AAAAMMDD000000.csv`; optimizada para lotes de períodos largos. |
 | `guardar_informacion_diaria` | `(...)` | Persiste metadatos de jornada y estado de procesamiento verificando que `catalogo_grabar` no sea vacío antes de anexarlo a `_cat.csv`, acotando el índice de estaciones `min(max(0, n_estaciones - 3), 5)` y preservando íntegramente todos los eventos de otras redes (`Id[-2:] != '00'`) tanto intermedios como correspondientes al último sismo del día (`.append()` cuando no existe un evento posterior). |
 | `espectro_respuesta` | `(aceleracion, dt, periodos, amortiguamiento) -> np.ndarray` | Calcula el espectro de respuesta elástico de aceleración ($S_a$) para señales sísmicas. |
 
