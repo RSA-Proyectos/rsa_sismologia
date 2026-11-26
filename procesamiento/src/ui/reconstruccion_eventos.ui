@@ -113,16 +113,55 @@
          </property>
         </widget>
        </item>
-       <item row="3" column="0" colspan="4">
+       <item row="3" column="0" colspan="2">
         <widget class="QCheckBox" name="chk_reconstruir_sis">
          <property name="text">
-          <string>Reconstruir también archivos .sis (solo sismos / estaciones analógicas)</string>
+          <string>Reconstruir también archivos .sis (solo sismos / analógicas)</string>
          </property>
          <property name="checked">
           <bool>false</bool>
          </property>
          <property name="toolTip">
           <string>Opcional: genera los binarios .sis en la carpeta dia/ para eventos clasificados como SISMO. Desactivado por defecto para estaciones digitales.</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="2" colspan="2">
+        <widget class="QCheckBox" name="chk_regenerar_consolidado">
+         <property name="text">
+          <string>Regenerar consolidado diario (_cat, _rep, _res, .xml)</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+         <property name="toolTip">
+          <string>Ejecuta cargar_dia() + Guardar_dia() y actualiza en cascada los períodos ya emitidos (Semana/Mes/Año).</string>
+         </property>
+        </widget>
+       </item>
+       <item row="4" column="0" colspan="4">
+        <widget class="QCheckBox" name="chk_regenerar_pdf_diario">
+         <property name="text">
+          <string>Regenerar también el PDF del reporte diario (opcional; más lento en períodos largos)</string>
+         </property>
+         <property name="checked">
+          <bool>false</bool>
+         </property>
+         <property name="toolTip">
+          <string>Genera nuevamente el archivo AAAAMMDD000000_rep.pdf de revisión diaria para cada día reconstruido.</string>
+         </property>
+        </widget>
+       </item>
+       <item row="5" column="0" colspan="4">
+        <widget class="QCheckBox" name="chk_normalizar_4d">
+         <property name="text">
+          <string>Normalizar archivos y registros a año de 4 dígitos (AAMMDD → AAAAMMDD)</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+         <property name="toolTip">
+          <string>Migra de forma segura (sin sobrescribir destinos existentes) los archivos históricos de 2 dígitos de año (AAMMDD) a 4 dígitos (AAAAMMDD) en raíz del día, reportes/, mseed/registros/, mseed/eventos/, dia/ y procesamiento/, y actualiza la columna 1 de AAAAMMDD000000.csv. No modifica fastHypo/.</string>
          </property>
         </widget>
        </item>

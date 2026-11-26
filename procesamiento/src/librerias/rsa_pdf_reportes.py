@@ -36,7 +36,7 @@ from rsa_io import lectura_archivo
 
 from rsa_pdf_graficos import (mapa_configuracion,formato,mapa,grafico_cobertura,
                               imprimir_seniales,imprimir_acelerograma,obtener_marcas_tiempo,
-                              marcar_tiempo,encontrar_cadena)
+                              marcar_tiempo,encontrar_cadena,obtener_o_calcular_cache_acelerograma)
 
 #from rsa_graficos_pdf import *
 #from rsa_reportes_pdf import *
@@ -327,7 +327,7 @@ def impresion_reporte_sismo(lienzo_archivo, evento_generar, canales, trCanal,ban
 
 
 
-def impresion_reporte_acelerograma(archivo,trcanal,estacion,datos_sismo,bandera):
+def impresion_reporte_acelerograma(archivo,trcanal,estacion,datos_sismo,bandera,ruta_mseed=None,dir_acelerogramas=None,cache_acel=None):
     # archivo------- Nombre del pdf del archivo del reporte diario
     # trCanal------- Datos mseed del evento de la estacion correspondiente
     # estacion------ Estacion a graficar del reporte diario
@@ -350,6 +350,10 @@ def impresion_reporte_acelerograma(archivo,trcanal,estacion,datos_sismo,bandera)
     linea_1="Estacion:"+parametros['NOMBRE'][estacion]+"      Ubicación: Lat:"+parametros['LATITUD'][estacion]+"°  Long:"+parametros['LONGITUD'][estacion]+"°  Alt(msnm):"+parametros['ALTITUD'][estacion]
     if bandera:
         lienzo=archivo
+        if cache_acel is None and ruta_mseed:
+            cache_acel = obtener_o_calcular_cache_acelerograma(
+                ruta_mseed, factor, dir_acelerogramas=dir_acelerogramas, trcanal=trcanal
+            )
     else:
         lienzo = canvas.Canvas(archivo,pagesize=A4)
         linea_1=linea_1+"    Archivo: "+archivo[-26:-8]+".mseed"+"    Archivo reporte: "+archivo[-21:-3]+"pdf"
@@ -389,13 +393,18 @@ def impresion_reporte_acelerograma(archivo,trcanal,estacion,datos_sismo,bandera)
         lienzo.drawString(40,490,linea_3)
         lienzo.drawString(40,475,linea_4)
         tamanio=(400,120)  #Se define el tamaño del grafico de las señales
-        drawing,maximo,senial_ascii=imprimir_acelerograma(tamanio,trcanal,componente,factor,bandera)
+        drawing,maximo,senial_ascii=imprimir_acelerograma(tamanio,trcanal,componente,factor,bandera,cache_acel=cache_acel)
         seniales_ascii.append(dato)
         seniales_ascii.append(senial_ascii)
         maximos.append(maximo)
         drawing.drawOn(lienzo, 0, 0)
         
-        tiempo_inicio,tiempo_inicial,duracion, catNames=obtener_marcas_tiempo(trcanal)
+        if cache_acel is not None and 'tiempo_inicio' in cache_acel:
+            tiempo_inicio = cache_acel['tiempo_inicio']
+            duracion = cache_acel['duracion']
+            catNames = cache_acel['catNames']
+        else:
+            tiempo_inicio,tiempo_inicial,duracion, catNames=obtener_marcas_tiempo(trcanal)
         for k in range(0,3):
             lienzo=marcar_tiempo(lienzo,80,290-k*tamanio[1]*1.2,tiempo_inicio,tamanio[0],duracion,catNames)
         lienzo.showPage()

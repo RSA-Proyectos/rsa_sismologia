@@ -959,6 +959,150 @@ def _normalizar_clave_evento_reconstruccion(nombre_evento: str) -> str:
     return base
 
 
+def _normalizar_nombre_evento_4d(nombre_evento: str) -> str:
+    """
+    Promueve un nombre de evento de 2 dígitos de año (AAMMDD_hhmmss.sis)
+    al estándar de 4 dígitos (20AAMMDD_hhmmss.sis). Si ya tiene 4 dígitos
+    o no sigue ese patrón, se devuelve intacto.
+    """
+    texto = str(nombre_evento).strip()
+    if not texto:
+        return texto
+    p = Path(texto)
+    stem = p.stem
+    sufijo = p.suffix
+    if len(stem) == 13 and stem[6] == '_' and stem[:6].isdigit() and stem[7:13].isdigit():
+        return f"20{stem}{sufijo}"
+    if len(stem) == 12 and stem.isdigit():
+        return f"20{stem[:6]}_{stem[6:12]}{sufijo}"
+    return texto
+
+
+def _normalizar_archivos_dia_4_digitos(directorios: dict, fecha_larga: str, fecha_corta: str) -> int:
+    """
+    Migra de forma segura (sin sobrescribir ni borrar destinos existentes) los archivos
+    de un día histórico desde el formato antiguo de 2 dígitos (AAMMDD) hacia el formato
+    estándar de 4 dígitos (AAAAMMDD).
+
+    Carpetas cubiertas:
+      - Raíz del día: 000000.csv, _cat, _rep, _res, .xml, _rep.pdf, _marcas.json,
+        _aux.csv, _estaciones.csv, _est.csv, _analogico.csv, _digital.csv.
+      - reportes/: _resp.csv, _tiempos.csv.
+      - mseed/registros/ y mseed/eventos/: EST_AAMMDD_HHMMSS.mseed -> EST_AAAAMMDD_HHMMSS.mseed.
+      - dia/: AAMMDD_HHMMSS.sis / .fas -> AAAAMMDD_HHMMSS.sis / .fas.
+      - procesamiento/: AAMMDD_HHMMSS_proc.csv -> AAAAMMDD_HHMMSS_proc.csv.
+
+    Nota: NO modifica fastHypo/ (sus nombres MMDDHHMM.rsa / Phase... no llevan año).
+    """
+    import re
+
+    if not fecha_larga or not fecha_corta or fecha_larga == fecha_corta:
+        return 0
+
+    renombrados = 0
+
+    def _renombrar_seguro(origen: str, destino: str) -> bool:
+        if origen == destino:
+            return False
+        if os.path.isfile(origen) and not os.path.exists(destino):
+            try:
+                os.rename(origen, destino)
+                return True
+            except OSError as e_ren:
+                print(f"Aviso normalizando a 4 dígitos ({os.path.basename(origen)}): {e_ren}")
+        return False
+
+    dir_base = directorios.get('Directorio_base', '')
+    if dir_base and os.path.isdir(dir_base):
+        sufijos_raiz = (
+            '000000.csv',
+            '000000_cat.csv',
+            '000000_rep.csv',
+            '000000_res.csv',
+            '000000.xml',
+            '000000_rep.pdf',
+            '000000_marcas.json',
+            '_aux.csv',
+            '_estaciones.csv',
+            '_est.csv',
+            '_analogico.csv',
+            '_digital.csv',
+        )
+        for suf in sufijos_raiz:
+            if _renombrar_seguro(
+                os.path.join(dir_base, f"{fecha_corta}{suf}"),
+                os.path.join(dir_base, f"{fecha_larga}{suf}"),
+            ):
+                renombrados += 1
+
+    dir_reportes = directorios.get('Directorio_reportes', '')
+    if dir_reportes and os.path.isdir(dir_reportes):
+        for suf in ('_resp.csv', '_tiempos.csv'):
+            if _renombrar_seguro(
+                os.path.join(dir_reportes, f"{fecha_corta}{suf}"),
+                os.path.join(dir_reportes, f"{fecha_larga}{suf}"),
+            ):
+                renombrados += 1
+
+    patron_mseed = re.compile(
+        rf"^([A-Za-z0-9]{{4}})_{re.escape(fecha_corta)}_(\d{{6}}\.mseed)$",
+        re.IGNORECASE,
+    )
+    for clave_dir in ('Directorio_registros', 'Directorio_eventos'):
+        carpeta = directorios.get(clave_dir, '')
+        if not carpeta or not os.path.isdir(carpeta):
+            continue
+        try:
+            nombres = os.listdir(carpeta)
+        except OSError:
+            continue
+        for nombre in nombres:
+            m = patron_mseed.match(nombre)
+            if not m:
+                continue
+            nuevo_nombre = f"{m.group(1)}_{fecha_larga}_{m.group(2)}"
+            if _renombrar_seguro(os.path.join(carpeta, nombre), os.path.join(carpeta, nuevo_nombre)):
+                renombrados += 1
+
+    dir_dia = directorios.get('Directorio_dia', '')
+    if dir_dia and os.path.isdir(dir_dia):
+        patron_dia = re.compile(
+            rf"^{re.escape(fecha_corta)}_(\d{{6}}\.(?:sis|fas))$",
+            re.IGNORECASE,
+        )
+        try:
+            nombres_dia = os.listdir(dir_dia)
+        except OSError:
+            nombres_dia = []
+        for nombre in nombres_dia:
+            m = patron_dia.match(nombre)
+            if not m:
+                continue
+            nuevo_nombre = f"{fecha_larga}_{m.group(1)}"
+            if _renombrar_seguro(os.path.join(dir_dia, nombre), os.path.join(dir_dia, nuevo_nombre)):
+                renombrados += 1
+
+    dir_proc = directorios.get('Directorio_procesamiento', '')
+    if dir_proc and os.path.isdir(dir_proc):
+        patron_proc = re.compile(
+            rf"^{re.escape(fecha_corta)}_(\d{{6}}_proc\.csv)$",
+            re.IGNORECASE,
+        )
+        try:
+            nombres_proc = os.listdir(dir_proc)
+        except OSError:
+            nombres_proc = []
+        for nombre in nombres_proc:
+            m = patron_proc.match(nombre)
+            if not m:
+                continue
+            nuevo_nombre = f"{fecha_larga}_{m.group(1)}"
+            if _renombrar_seguro(os.path.join(dir_proc, nombre), os.path.join(dir_proc, nuevo_nombre)):
+                renombrados += 1
+
+    return renombrados
+
+
 def _extraer_hora_tramo(nombre_evento: str) -> int:
     """Devuelve la hora (0..23) desde un nombre de evento AAAAMMDD_hhmmss.sis o AAMMDD_hhmmss.sis."""
     clave = _normalizar_clave_evento_reconstruccion(nombre_evento)
@@ -973,6 +1117,9 @@ def reconstruir_eventos_dia(
     sobrescribir_existentes=True,
     solo_presentes_en_csv=True,
     reconstruir_sis=False,
+    regenerar_consolidado_dia=True,
+    regenerar_pdf_diario=False,
+    normalizar_4_digitos=True,
     parametros=None,
     estaciones_analogicas=None,
     progreso_callback=None,
@@ -984,8 +1131,10 @@ def reconstruir_eventos_dia(
     AAAAMMDD_aux.csv y aplicando la clasificación oficial y tokens existentes desde
     AAAAMMDD000000.csv.
 
-    - Si falta AAAAMMDD_aux.csv, AAAAMMDD000000.csv o no hay registros continuos en
-      mseed/registros/, el día se omite de forma segura sin error.
+    - Si normalizar_4_digitos=True, migra de forma segura (sin sobrescribir destinos)
+      los nombres de archivos diarios/eventos de 2 dígitos (AAMMDD) a 4 dígitos (AAAAMMDD)
+      y promueve la columna 1 de AAAAMMDD000000.csv al formato AAAAMMDD_hhmmss.sis.
+    - Si falta AAAAMMDD000000.csv, el día se omite de forma segura sin error.
     - Preserva los eventos presentes en AAAAMMDD000000.csv que no figuren en _aux.csv
       (por ejemplo eventos EVT o de otras redes) y conserva todos los tokens EEEECBFFIISS
       previamente procesados.
@@ -996,6 +1145,20 @@ def reconstruir_eventos_dia(
     from metodos_gestion import parametros_estaciones, obtencion_hora
 
     directorios = obtener_directorios(archivo)
+    fecha_ = obtencion_hora(archivo)
+    fecha_larga = fecha_.strftime('%Y%m%d')
+    fecha_corta = fecha_.strftime('%y%m%d')
+
+    archivos_normalizados_4d = 0
+    if normalizar_4_digitos and os.path.isdir(directorios.get('Directorio_base', '')):
+        archivos_normalizados_4d = _normalizar_archivos_dia_4_digitos(
+            directorios, fecha_larga, fecha_corta
+        )
+        archivo_4d = os.path.join(
+            directorios.get('Directorio_trabajo', ''), f"{fecha_larga}000000"
+        )
+        directorios = obtener_directorios(archivo_4d)
+
     ruta_aux = directorios.get('archivo_auxiliar', '')
     ruta_csv = directorios.get('archivo_csv', '')
     dir_registros = directorios.get('Directorio_registros', '')
@@ -1010,24 +1173,26 @@ def reconstruir_eventos_dia(
         'eventos_reconstruidos': 0,
         'mseed_generados': 0,
         'sis_generados': 0,
+        'tokens_sincronizados': 0,
+        'archivos_normalizados_4d': archivos_normalizados_4d,
+        'eventos_normalizados_4d': 0,
+        'aux_estandarizado': False,
+        'aux_creado_nuevo': False,
+        'aux_eventos_creados': 0,
+        'consolidado_regenerado': False,
+        'pdf_diario_generado': False,
         'ruido_omitidos': 0,
         'sin_match_csv': 0,
     }
 
-    if not ruta_aux or not os.path.isfile(ruta_aux):
-        resumen['motivo'] = 'No existe archivo AAAAMMDD_aux.csv'
-        return resumen
     if not ruta_csv or not os.path.isfile(ruta_csv):
         resumen['motivo'] = 'No existe archivo AAAAMMDD000000.csv'
         return resumen
-    if not dir_registros or not os.path.isdir(dir_registros):
-        resumen['motivo'] = 'No existe carpeta mseed/registros'
-        return resumen
 
-    filas_aux = lectura_archivo(ruta_aux) or []
+    filas_aux = lectura_archivo(ruta_aux) if (ruta_aux and os.path.isfile(ruta_aux)) else []
     filas_csv = lectura_archivo(ruta_csv) or []
-    if not filas_aux:
-        resumen['motivo'] = 'Archivo AAAAMMDD_aux.csv vacío'
+    if not filas_csv and not filas_aux:
+        resumen['motivo'] = 'Archivos diarios vacíos'
         return resumen
 
     if parametros is None:
@@ -1035,38 +1200,47 @@ def reconstruir_eventos_dia(
     if estaciones_analogicas is None:
         estaciones_analogicas = lectura_archivo(os.path.join(ruta_datos, 'analogicas.csv')) or []
 
-    # Verificar estaciones habilitadas que tengan registro continuo .mseed en este día
-    fecha_ = obtencion_hora(archivo)
+    # Verificar estaciones habilitadas que tengan registro continuo .mseed en este día (opcional si solo se sincroniza)
     sufijo_4d = fecha_.strftime('_%Y%m%d_%H%M%S.mseed')
     sufijo_2d = fecha_.strftime('_%y%m%d_%H%M%S.mseed')
 
     estaciones_con_senial = []
-    for num_est, habil in enumerate(parametros['HAB_CANAL']):
-        if habil != '1':
-            continue
-        cod_est = parametros['CODIGO'][num_est]
-        cand_4d = os.path.join(dir_registros, cod_est + sufijo_4d)
-        cand_2d = os.path.join(dir_registros, cod_est + sufijo_2d)
-        if os.path.isfile(cand_4d):
-            estaciones_con_senial.append((num_est, parametros['NOMBRE'][num_est], cod_est, cand_4d))
-        elif os.path.isfile(cand_2d):
-            estaciones_con_senial.append((num_est, parametros['NOMBRE'][num_est], cod_est, cand_2d))
+    if dir_registros and os.path.isdir(dir_registros):
+        for num_est, habil in enumerate(parametros['HAB_CANAL']):
+            if habil != '1':
+                continue
+            cod_est = parametros['CODIGO'][num_est]
+            cand_4d = os.path.join(dir_registros, cod_est + sufijo_4d)
+            cand_2d = os.path.join(dir_registros, cod_est + sufijo_2d)
+            if os.path.isfile(cand_4d):
+                estaciones_con_senial.append((num_est, parametros['NOMBRE'][num_est], cod_est, cand_4d))
+            elif os.path.isfile(cand_2d):
+                estaciones_con_senial.append((num_est, parametros['NOMBRE'][num_est], cod_est, cand_2d))
 
-    if not estaciones_con_senial:
-        resumen['motivo'] = 'No hay registros continuos .mseed en mseed/registros'
+    tiene_eventos_mseed = bool(dir_eventos and os.path.isdir(dir_eventos))
+    if not estaciones_con_senial and not tiene_eventos_mseed and not regenerar_consolidado_dia:
+        resumen['motivo'] = 'No hay registros continuos en mseed/registros ni eventos en mseed/eventos'
         return resumen
 
-    os.makedirs(dir_eventos, exist_ok=True)
-    os.makedirs(dir_dia, exist_ok=True)
+    if estaciones_con_senial:
+        os.makedirs(dir_eventos, exist_ok=True)
+        os.makedirs(dir_dia, exist_ok=True)
 
     # Indexar AAAAMMDD000000.csv por clave normalizada (preservando clasificación y tokens)
     mapa_csv = {}
     for fila_ev in filas_csv:
         if not fila_ev or len(fila_ev) < 3:
             continue
-        clave = _normalizar_clave_evento_reconstruccion(fila_ev[1])
+        fila_copia = list(fila_ev)
+        if normalizar_4_digitos:
+            nombre_orig = str(fila_copia[1]).strip()
+            nombre_norm = _normalizar_nombre_evento_4d(nombre_orig)
+            if nombre_norm != nombre_orig:
+                fila_copia[1] = nombre_norm
+                resumen['eventos_normalizados_4d'] += 1
+        clave = _normalizar_clave_evento_reconstruccion(fila_copia[1])
         if clave:
-            mapa_csv[clave] = list(fila_ev)
+            mapa_csv[clave] = fila_copia
 
     # Resolver cabecera binaria .sis una sola vez para el día
     candidatos_cabecera = [
@@ -1111,12 +1285,14 @@ def reconstruir_eventos_dia(
             if solo_presentes_en_csv:
                 continue
             tipo_evento = str(fila_aux[2]).strip()
-            nombre_ev_final = nombre_ev_aux
+            nombre_ev_final = _normalizar_nombre_evento_4d(nombre_ev_aux) if normalizar_4_digitos else nombre_ev_aux
             tokens_csv = []
         else:
             # Clasificación definitiva tomada de AAAAMMDD000000.csv
             tipo_evento = str(fila_csv_oficial[2]).strip()
             nombre_ev_final = str(fila_csv_oficial[1]).strip()
+            if normalizar_4_digitos:
+                nombre_ev_final = _normalizar_nombre_evento_4d(nombre_ev_final)
             tokens_csv = [tok for tok in fila_csv_oficial[3:] if tok and tok != '-']
 
         try:
@@ -1279,10 +1455,161 @@ def reconstruir_eventos_dia(
         eventos_por_clave[clave_ev] = [prefijo_idx, nombre_ev_final, tipo_evento] + lista_guiones
         resumen['eventos_reconstruidos'] += 1
 
+    # 3B) Sincronizar tokens '-' en cualquier evento de AAAAMMDD000000.csv (aunque no estuviera en _aux.csv
+    #     o no hubiera mseed/registros/) contra los archivos .mseed realmente presentes en mseed/eventos/
+    if dir_eventos and os.path.isdir(dir_eventos):
+        for clave_ev, fila_ev in list(eventos_por_clave.items()):
+            if not fila_ev or len(fila_ev) < 3:
+                continue
+            tipo_ev_f = str(fila_ev[2]).strip().upper()
+            if tipo_ev_f == 'RUIDO':
+                continue
+            # Asegurar longitud mínima de 3 + 101 columnas
+            if len(fila_ev) < 3 + total_estaciones:
+                fila_ev = list(fila_ev) + ['-'] * (3 + total_estaciones - len(fila_ev))
+            try:
+                utc_ev = obtencion_hora(fila_ev[1])
+                ts_4d = utc_ev.strftime('_%Y%m%d_%H%M%S.mseed')
+                ts_2d = utc_ev.strftime('_%y%m%d_%H%M%S.mseed')
+            except Exception:
+                continue
+            modificada = False
+            for idx_e in range(total_estaciones):
+                if str(fila_ev[idx_e + 3]).strip() not in ('', '-'):
+                    continue
+                cod = parametros['CODIGO'][idx_e]
+                p4 = os.path.join(dir_eventos, cod + ts_4d)
+                p2 = os.path.join(dir_eventos, cod + ts_2d)
+                if os.path.isfile(p4) or os.path.isfile(p2):
+                    canal = str(parametros['COMPONENTE'][idx_e]) if str(parametros['COMPONENTE'][idx_e]) else '1'
+                    fila_ev[idx_e + 3] = f"{cod}{canal}0000000"
+                    resumen['tokens_sincronizados'] += 1
+                    modificada = True
+            if modificada:
+                eventos_por_clave[clave_ev] = fila_ev
+
     # 4) Guardar AAAAMMDD000000.csv consolidado, ordenado y deduplicado
     eventos_consolidados = list(eventos_por_clave.values())
     eventos_consolidados = ordenar_y_eliminar_duplicados(eventos_consolidados, 1, False)
     escritura_archivo(ruta_csv, eventos_consolidados)
+
+    # 4B) Crear o estandarizar AAAAMMDD_aux.csv (9 columnas) a partir de AAAAMMDD000000.csv
+    #     incluso en días históricos que nunca tuvieron _aux.csv ni mseed/registros/.
+    #     Las ventanas [t_inicio, t_final] se obtienen con prioridad:
+    #       1) Cabecera real del primer .mseed existente en mseed/eventos/ (headonly=True).
+    #       2) Respaldo desde la hora del archivo AAAAMMDD_hhmmss.sis + 60.0 s.
+    try:
+        dir_base = directorios.get('Directorio_base', '')
+        if normalizar_4_digitos and dir_base:
+            ruta_aux_final = os.path.join(dir_base, f"{fecha_larga}_aux.csv")
+        else:
+            ruta_aux_final = ruta_aux or (os.path.join(dir_base, f"{fecha_larga}_aux.csv") if dir_base else '')
+
+        if ruta_aux_final:
+            existia_aux_previo = bool(os.path.isfile(ruta_aux_final) and len(filas_aux) > 0)
+            mapa_aux_prev = {}
+            for fa in filas_aux:
+                if fa and len(fa) >= 6:
+                    cl_a = _normalizar_clave_evento_reconstruccion(fa[1])
+                    if cl_a and cl_a not in mapa_aux_prev:
+                        mapa_aux_prev[cl_a] = list(fa)
+
+            def _obtener_ventana_aux(fila_ev_c):
+                t_ini_fb = 0.0
+                t_fin_fb = 60.0
+                utc_ev_c = None
+                try:
+                    utc_ev_c = obtencion_hora(fila_ev_c[1])
+                    t_ini_fb = max(0.0, min(86400.0, float(utc_ev_c - fecha_)))
+                    t_fin_fb = min(86400.0, t_ini_fb + 60.0)
+                except Exception:
+                    return round(t_ini_fb, 1), round(t_fin_fb, 1)
+
+                if dir_eventos and os.path.isdir(dir_eventos) and utc_ev_c is not None:
+                    ts4 = utc_ev_c.strftime('_%Y%m%d_%H%M%S.mseed')
+                    ts2 = utc_ev_c.strftime('_%y%m%d_%H%M%S.mseed')
+                    # Priorizar estaciones con token presente en la fila para evitar escaneo innecesario
+                    codigos_cand = []
+                    for tok_c in fila_ev_c[3:]:
+                        t_limp = str(tok_c).strip()
+                        if len(t_limp) >= 4 and t_limp != '-':
+                            codigos_cand.append(t_limp[:4])
+                    if not codigos_cand:
+                        codigos_cand = list(parametros['CODIGO'][:total_estaciones])
+
+                    for cod_c in codigos_cand:
+                        for ts_c in (ts4, ts2):
+                            ruta_ms = os.path.join(dir_eventos, cod_c + ts_c)
+                            if os.path.isfile(ruta_ms):
+                                try:
+                                    st_hdr = obspy_read(ruta_ms, headonly=True)
+                                    if len(st_hdr) > 0:
+                                        ti_ms = round(float(st_hdr[0].stats.starttime - fecha_), 1)
+                                        tf_ms = round(float(st_hdr[0].stats.endtime - fecha_), 1)
+                                        if tf_ms > ti_ms:
+                                            return max(0.0, ti_ms), min(86400.0, tf_ms)
+                                except Exception:
+                                    continue
+                return round(t_ini_fb, 1), round(t_fin_fb, 1)
+
+            ahora_iso = str(datetime.now())
+            filas_aux_std = []
+            for idx_con, fila_ev in enumerate(eventos_consolidados, start=1):
+                if not fila_ev or len(fila_ev) < 3:
+                    continue
+                nom_ev_std = str(fila_ev[1]).strip()
+                tipo_ev_std = str(fila_ev[2]).strip()
+                clave_std = _normalizar_clave_evento_reconstruccion(nom_ev_std)
+                toks_validos = [
+                    str(t).strip() for t in fila_ev[3:]
+                    if t is not None and str(t).strip() not in ('', '-')
+                ]
+                tokens_str = (" ".join(toks_validos) + " ") if toks_validos else ""
+                num_ev_str = str(fila_ev[0]).strip() if str(fila_ev[0]).strip() else str(idx_con)
+
+                fila_prev = mapa_aux_prev.get(clave_std)
+                ti_val, tf_val = None, None
+                if fila_prev is not None:
+                    try:
+                        ti_p = float(fila_prev[4])
+                        tf_p = float(fila_prev[5])
+                        if tf_p > ti_p:
+                            ti_val, tf_val = ti_p, tf_p
+                    except (ValueError, TypeError, IndexError):
+                        ti_val, tf_val = None, None
+
+                if ti_val is not None and tf_val is not None:
+                    ts_crea = str(fila_prev[3]) if len(fila_prev) > 3 and str(fila_prev[3]).strip() else ahora_iso
+                    resp_ev = str(fila_prev[6]) if len(fila_prev) > 6 and str(fila_prev[6]).strip() else (responsable or 'RSA')
+                    muestra_64 = (
+                        str(fila_prev[8]).strip()
+                        if len(fila_prev) > 8 and str(fila_prev[8]).strip().isdigit()
+                        else str(int(round(ti_val * 64)))
+                    )
+                else:
+                    ti_val, tf_val = _obtener_ventana_aux(fila_ev)
+                    ts_crea = ahora_iso
+                    resp_ev = responsable or 'RSA'
+                    muestra_64 = str(int(round(ti_val * 64)))
+                    resumen['aux_eventos_creados'] += 1
+
+                filas_aux_std.append([
+                    num_ev_str,
+                    nom_ev_std,
+                    tipo_ev_std,
+                    ts_crea,
+                    str(ti_val),
+                    str(tf_val),
+                    resp_ev,
+                    tokens_str,
+                    muestra_64,
+                ])
+
+            escritura_archivo(ruta_aux_final, filas_aux_std)
+            resumen['aux_estandarizado'] = True
+            resumen['aux_creado_nuevo'] = not existia_aux_previo
+    except Exception as e_aux:
+        print(f"Aviso estandarizando AAAAMMDD_aux.csv en {resumen['fecha_base']}: {e_aux}")
 
     # 5) Actualizar archivo_tiempos con la clasificación oficial consolidada
     archivo_tiempos = directorios.get('archivo_tiempos', '')
@@ -1341,6 +1668,77 @@ def reconstruir_eventos_dia(
         except Exception as e_t:
             print(f"Aviso actualizando archivo_tiempos: {e_t}")
 
+    # 6) Regenerar archivos consolidados oficiales del día (_cat.csv, _rep.csv, _res.csv, _resp.csv, .xml)
+    #    y propagar en cascada a los períodos emitidos (Semana / Mes / Año)
+    if regenerar_consolidado_dia:
+        try:
+            from metodos_rsa import cargar_dia, sincronizar_otras_redes_dia
+            from rsa_io import Guardar_dia
+            from rsa_utilidades import actualizar_periodos_emitidos_desde_fecha
+
+            (
+                ev_rep_d,
+                cat_d,
+                ev_d,
+                _vec_d,
+                _can_d,
+                root_d,
+                resp_d,
+                res_d,
+            ) = cargar_dia(directorios)
+            try:
+                cat_d, ev_rep_d, _ = sincronizar_otras_redes_dia(
+                    directorios, cat_d, ev_rep_d, ev_d
+                )
+            except Exception:
+                pass
+            Guardar_dia(ev_rep_d, cat_d, ev_d, root_d, resp_d, res_d, directorios)
+            actualizar_periodos_emitidos_desde_fecha(
+                directorios.get('archivo_csv', archivo),
+                directorios.get('Directorio_trabajo', ''),
+            )
+            resumen['consolidado_regenerado'] = True
+
+            # 7) Opcionalmente regenerar también el PDF del reporte diario (MODO_DIARIO_REVISION)
+            if regenerar_pdf_diario:
+                try:
+                    from rsa_pdf_catalogo import reporte_resumen_modos, MODO_DIARIO_REVISION
+
+                    meses_es = [
+                        "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
+                        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+                    ]
+                    fecha_dt = datetime(fecha_.year, fecha_.month, fecha_.day)
+                    dia_rep_str = f"      del {fecha_.day} de {meses_es[fecha_.month]} de {fecha_.year}"
+                    tree_d = ET.ElementTree(root_d)
+                    est_hab_d = [
+                        i for i, h in enumerate(parametros['HAB_CANAL']) if h == '1'
+                    ]
+                    dir_trabajo_pdf = str(directorios['Directorio_trabajo']).rstrip('/\\') + '/'
+                    reporte_resumen_modos(
+                        directorios['archivo_reporte_dia'],
+                        dia_rep_str,
+                        fecha_dt,
+                        fecha_dt,
+                        cat_d,
+                        res_d,
+                        1,
+                        0,
+                        MODO_DIARIO_REVISION,
+                        est_hab_d,
+                        dir_trabajo_pdf,
+                        tree_d,
+                        resp_d,
+                        ev_d,
+                        False,
+                        True,
+                    )
+                    resumen['pdf_diario_generado'] = True
+                except Exception as e_pdf:
+                    print(f"Aviso regenerando PDF diario {resumen['fecha_base']}: {e_pdf}")
+        except Exception as e_cons:
+            print(f"Aviso regenerando consolidado diario {resumen['fecha_base']}: {e_cons}")
+
     resumen['estado'] = 'ok'
     resumen['motivo'] = 'Reconstruido exitosamente'
     return resumen
@@ -1365,17 +1763,18 @@ def espectro_respuesta(acelerograma, dt,factor,directorio):
             - Sv: Velocidad máxima (cm/s).
     """
     
-    damp=0.05   #damp (float): Amortiguamiento adimensional. Default: 0.05 (5%).
-    Tmin=0.02   #Tmin (float): Periodo mínimo para el espectro (s). Default: 0.02.
-    Tmax=4.0    #Tmax (float): Periodo máximo para el espectro (s). Default: 4.0.
-    Ax_g = acelerograma * factor/980.  # Suponemos que el factor convierte a m/s²
+    from scipy import signal
 
-    # Convertir a fuerza externa
-    m = 1  # Masa normalizada
-    p = -m * Ax_g
+    damp = 0.05   # Amortiguamiento adimensional (5%)
+    Tmin = 0.02   # Periodo mínimo para el espectro (s)
+    Tmax = 4.0    # Periodo máximo para el espectro (s)
+    Ax_g = np.asarray(acelerograma, dtype=np.float64) * (factor / 980.0)
 
-    # Selección del método según dt
-    beta = 1/4 if dt > 0.005 else 1/6
+    # Convertir a fuerza externa (masa normalizada m = 1)
+    p = -Ax_g
+
+    # Selección del método de Newmark según dt
+    beta = 0.25 if dt > 0.005 else (1.0 / 6.0)
     gamma = 0.5  # Método de aceleración promedio
 
     # Definir periodos T
@@ -1388,47 +1787,47 @@ def espectro_respuesta(acelerograma, dt,factor,directorio):
     Sd = np.zeros(nT)
     Sv = np.zeros(nT)
     Sa = np.zeros(nT)
-    Spd = np.zeros(nT)
-    Spv = np.zeros(nT)
-    Spa = np.zeros(nT)
 
-    # Cálculo para cada periodo T
+    if ls < 2:
+        Spd = Sd
+        Spv = 2.0 * np.pi * Spd / T
+        Spa = 2.0 * np.pi * Spv / T
+        return T, Spa, Spv, Sd, Sa, Sv
+
+    # Formulación discreta exacta del método de Newmark vía scipy.signal.lfilter (~60x más rápido)
+    p0 = p - p[0]
+    dt2 = dt * dt
+    c_b1 = 0.5 + gamma - 2.0 * beta
+    c_b2 = 0.5 - gamma + beta
+    c_v1 = 1.0 - 2.0 * gamma
+    c_v2 = -(1.0 - gamma)
+
     for j in range(nT):
-        wn = 2 * np.pi / T[j]
-        k = m * wn**2
-        c = 2 * m * wn * damp
+        wn = 2.0 * np.pi / T[j]
+        k = wn * wn
+        c = 2.0 * wn * damp
 
-        # Inicializar variables del oscilador
-        u = np.zeros(ls)
-        udot = np.zeros(ls)
-        uddot = np.zeros(ls)
+        d0 = 1.0 + gamma * dt * c + beta * dt2 * k
+        d1 = -2.0 + c_v1 * dt * c + c_b1 * dt2 * k
+        d2 = 1.0 - (1.0 - gamma) * dt * c + c_b2 * dt2 * k
 
-        # Calcular parámetros para Newmark
-        khat = k + gamma / beta / dt * c + m / beta / dt**2
-        a = m / beta / dt + gamma * c / beta
-        b = m / (2 * beta) + dt * (gamma / (2 * beta) - 1) * c
+        a_den = np.array([1.0, d1 / d0, d2 / d0])
+        bu = np.array([beta * dt2, c_b1 * dt2, c_b2 * dt2]) / d0
+        bv = np.array([gamma * dt, c_v1 * dt, c_v2 * dt]) / d0
 
-        # Resolver la ecuación para cada paso de tiempo
-        for i in range(1, ls):
-            dp = p[i] - p[i - 1]
-            du = (dp + a * udot[i - 1] + b * uddot[i - 1]) / khat
-            dudot = gamma / beta / dt * du - gamma / beta * udot[i - 1] + dt * (1 - gamma / (2 * beta)) * uddot[i - 1]
-            duddot = du / (beta * dt**2) - udot[i - 1] / (beta * dt) - uddot[i - 1] / (2 * beta)
+        u = signal.lfilter(bu, a_den, p0)
+        udot = signal.lfilter(bv, a_den, p0)
+        uddot = p0 - c * udot - k * u
+        uddot[0] = 0.0
 
-            # Actualizar variables
-            u[i] = u[i - 1] + du
-            udot[i] = udot[i - 1] + dudot
-            uddot[i] = uddot[i - 1] + duddot
-
-        # Calcular valores máximos
         Sd[j] = np.max(np.abs(u))
         Sv[j] = np.max(np.abs(udot))
         Sa[j] = np.max(np.abs(uddot))
 
-        # Cálculo de pseudocantidades
-        Spd[j] = Sd[j]
-        Spv[j] = 2 * np.pi * Spd[j] / T[j]
-        Spa[j] = 2 * np.pi * Spv[j] / T[j]
+    # Cálculo de pseudocantidades
+    Spd = Sd
+    Spv = 2.0 * np.pi * Spd / T
+    Spa = 2.0 * np.pi * Spv / T
 
     return T, Spa, Spv, Sd, Sa, Sv
 

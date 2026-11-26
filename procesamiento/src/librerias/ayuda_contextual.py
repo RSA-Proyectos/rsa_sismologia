@@ -337,6 +337,10 @@ def _construir_ayuda_nivel_menu(ventana_principal) -> dict:
                 <td><b>Cargar datos de USGS</b></td>
                 <td>Abre la ventana de integración para pegar bloques de texto de <b>21 columnas</b> del catálogo del USGS y asociarlos (&lt; 60 s) a los catálogos diarios de la RSA.</td>
             </tr>
+            <tr>
+                <td><b>Reconstrucción de eventos</b></td>
+                <td>Proceso masivo por período que reconstruye los <code>.mseed</code> de eventos (y opcionalmente <code>.sis</code>), sincroniza los tokens faltantes en <code>AAAAMMDD000000.csv</code> respetando siempre la clasificación definitiva (nunca sobrescribe reclasificaciones con el <code>_aux.csv</code>) y regenera los consolidados diarios (<code>_cat.csv</code>, <code>_rep.csv</code>, <code>_res.csv</code>, <code>.xml</code> y opcionalmente el PDF diario).</td>
+            </tr>
         </table>
         """
         pestanas_habilitadas.append(('Pestaña: Ingreso de Datos', html_ingreso_datos))
@@ -1236,7 +1240,7 @@ def _ayuda_subprograma_reporte_periodo(widget) -> dict:
             </ul>
         </li>
         <li><b>Filtro de Magnitud (Md):</b> Permite usar el umbral rápido (<code>todos</code>, <code>&gt;= 2.5</code> .. <code>6.5</code>) o un <b>rango numérico con decimales</b> (ej. <code>1.2 a 2.8 Md</code> para aislar microsismicidad).</li>
-        <li><b>Clasificación por N° Mínimo de Estaciones (Mecanismos Focales):</b> Permite exigir un mínimo de <code>4</code>, <code>5</code>, <code>6</code>, <code>7</code>, <code>8</code> o <code>10</code> estaciones caracterizadas por evento, indispensable para estudios de <b>mecanismos focales</b> (que requieren más de las 3 estaciones mínimas de localización hipocentral).</li>
+        <li><b>Candidatos para Mecanismos Focales (Acción independiente):</b> El cálculo de mecanismos focales se realiza <b>por evento</b> (como en SeisComP/SEISAN) y <b>nunca condiciona</b> los reportes convencionales emitidos con <code>Guardar</code>. El selector de mínimo de estaciones (<code>&gt;= 4..10</code>) y el botón <b><code>Exportar Candidatos (.csv / .xml)</code></b> exportan aparte los sismos candidatos a <code>mecanismos_focales/</code> sin alterar el catálogo ni el PDF del período.</li>
     </ul>
     """
 
@@ -1483,6 +1487,119 @@ def _ayuda_subprograma_calibrar_md(widget) -> dict:
 # =========================================================================================
 # 4. ORQUESTADOR DE INSPECCIÓN DE ESTADO EN TIEMPO REAL
 # =========================================================================================
+def _ayuda_subprograma_reconstruccion_eventos(widget) -> dict:
+    """Ayuda contextual completa y sensible al estado para `Reconstruccion_eventos` (`reconstruccion_eventos.py`)."""
+    dir_trab = getattr(widget, 'directorio_trabajo', 'C:/DIA/')
+    f_ini_txt = widget.dateEdit_inicio.date().toString('dd/MM/yyyy') if hasattr(widget, 'dateEdit_inicio') else ''
+    f_fin_txt = widget.dateEdit_fin.date().toString('dd/MM/yyyy') if hasattr(widget, 'dateEdit_fin') else ''
+    solo_csv = widget.chk_solo_en_csv.isChecked() if hasattr(widget, 'chk_solo_en_csv') else True
+    sobrescribir = widget.chk_sobrescribir.isChecked() if hasattr(widget, 'chk_sobrescribir') else True
+    rec_sis = widget.chk_reconstruir_sis.isChecked() if hasattr(widget, 'chk_reconstruir_sis') else False
+    reg_cons = widget.chk_regenerar_consolidado.isChecked() if hasattr(widget, 'chk_regenerar_consolidado') else True
+    reg_pdf = widget.chk_regenerar_pdf_diario.isChecked() if hasattr(widget, 'chk_regenerar_pdf_diario') else False
+    norm_4d = widget.chk_normalizar_4d.isChecked() if hasattr(widget, 'chk_normalizar_4d') else True
+
+    html_guia = f"""
+    <h2>Reconstrucción Integral de Eventos por Período</h2>
+    <div class="caja-estado-vivo">
+        <b>Estado actual configurado:</b><br>
+        • <b>Directorio de trabajo:</b> <code>{dir_trab}</code><br>
+        • <b>Período seleccionado:</b> {f_ini_txt} al {f_fin_txt}<br>
+        • <b>Opciones activas:</b>
+          Solo en CSV={('Sí' if solo_csv else 'No')} ·
+          Sobrescribir={('Sí' if sobrescribir else 'No')} ·
+          .sis={('Sí' if rec_sis else 'No')} ·
+          Consolidado diario={('Sí' if reg_cons else 'No')} ·
+          PDF diario={('Sí' if reg_pdf else 'No')} ·
+          Año 4 dígitos={('Sí' if norm_4d else 'No')}
+    </div>
+
+    <p>Este módulo unifica en un solo proceso por período (semanas, meses o años) la <b>normalización a año de 4 dígitos</b>,
+    la <b>reextracción de señales</b>, la <b>sincronización de tokens</b> y la <b>regeneración del consolidado diario</b>,
+    ejecutándose en segundo plano con doble barra de progreso y botón de cancelación segura.</p>
+
+    <h3>Explicación detallada de cada opción</h3>
+    <table>
+        <tr>
+            <th>Opción</th>
+            <th>Qué hace y cuándo usarla</th>
+        </tr>
+        <tr>
+            <td><b>Solo reconstruir eventos presentes en <code>AAAAMMDD000000.csv</code></b><br><i>(Recomendado: Marcado)</i></td>
+            <td>Usa las ventanas de tiempo <code>[t_inicio, t_final]</code> de <code>AAAAMMDD_aux.csv</code> únicamente para los eventos confirmados en <code>AAAAMMDD000000.csv</code>, aplicando siempre la <b>clasificación definitiva</b> del CSV principal (si un evento se cambió de <code>INDEFINIDO</code> a <code>SISMO</code> o a <code>Ruido</code>, esa clasificación se respeta estrictamente).</td>
+        </tr>
+        <tr>
+            <td><b>Sobrescribir archivos <code>.mseed</code> existentes</b></td>
+            <td>Si está <b>marcado</b>, reextrae todos los <code>.mseed</code> desde <code>mseed/registros/</code>. Si se <b>desmarca</b>, solo crea los <code>.mseed</code> que falten (mucho más rápido cuando únicamente se incorporó una estación nueva).</td>
+        </tr>
+        <tr>
+            <td><b>Reconstruir también archivos <code>.sis</code></b><br><i>(Opcional: Desmarcado por defecto)</i></td>
+            <td>Genera los archivos binarios <code>.sis</code> (64 Hz) en la carpeta <code>dia/</code> para eventos clasificados como <code>SISMO</code>. Como las estaciones incorporadas posteriormente suelen ser digitales, por defecto se omite para acelerar períodos largos.</td>
+        </tr>
+        <tr>
+            <td><b>Regenerar consolidado diario (<code>_cat</code>, <code>_rep</code>, <code>_res</code>, <code>.xml</code>)</b><br><i>(Recomendado: Marcado)</i></td>
+            <td>Tras actualizar <code>AAAAMMDD000000.csv</code>, ejecuta automáticamente <code>cargar_dia()</code> + <code>sincronizar_otras_redes_dia()</code> + <code>Guardar_dia()</code> y actualiza en cascada los reportes de Semana, Mes y Año ya emitidos (sin regenerar PDFs de período).</td>
+        </tr>
+        <tr>
+            <td><b>Regenerar también el PDF del reporte diario</b><br><i>(Opcional: Desmarcado por defecto)</i></td>
+            <td>Vuelve a emitir el archivo <code>AAAAMMDD000000_rep.pdf</code> de revisión diaria para cada día procesado. Recomendado solo para rangos cortos (días o semanas), ya que en rangos de varios años incrementa el tiempo de ejecución.</td>
+        </tr>
+        <tr>
+            <td><b>Normalizar archivos y registros a año de 4 dígitos (<code>AAMMDD &rarr; AAAAMMDD</code>)</b><br><i>(Recomendado: Marcado)</i></td>
+            <td>Elimina el arrastre histórico de nombres con año de 2 dígitos (2020–2024). Renombra de forma segura (sin sobrescribir destinos existentes) los archivos del día en raíz (<code>000000.csv</code>, <code>_cat</code>, <code>_rep</code>, <code>_res</code>, <code>.xml</code>, <code>_aux</code>, <code>_estaciones</code>, <code>_est</code>, <code>_marcas</code>, <code>_rep.pdf</code>), <code>reportes/</code> (<code>_resp</code>, <code>_tiempos</code>), <code>mseed/registros/</code>, <code>mseed/eventos/</code>, <code>dia/</code> (<code>.sis</code>, <code>.fas</code>) y <code>procesamiento/</code>, y promueve la columna 1 de <code>AAAAMMDD000000.csv</code> a <code>AAAAMMDD_hhmmss.sis</code>. <b>Nunca modifica <code>fastHypo/</code></b> (cuyos archivos no llevan año).</td>
+        </tr>
+    </table>
+    """
+
+    html_flujo = """
+    <h2>Flujo Interno y Protección de Datos</h2>
+    <div class="caja-flujo">
+        <b>Orden exacto que ejecuta el sistema por cada día del período:</b>
+        <ol>
+            <li><b>Normalización a año de 4 dígitos (si está marcado):</b> antes de leer o escribir, migra en disco los nombres de 2 dígitos (<code>AAMMDD...</code>) a 4 dígitos (<code>AAAAMMDD...</code>) solo si el destino no existe (cero sobrescrituras, cero pérdida de datos) y deja intacta la carpeta <code>fastHypo/</code>.</li>
+            <li><b>Respaldo previo en memoria de <code>AAAAMMDD000000.csv</code>:</b> guarda todas las clasificaciones definitivas (<code>SISMO</code>, <code>FF</code>, <code>FC</code>, <code>TELESISMO</code>, <code>Ruido</code>, etc.), todos los tokens <code>EEEECBFFIISS</code> ya procesados y los eventos que no figuren en <code>_aux.csv</code> (como eventos EVT o de otras redes), promoviendo además los nombres <code>AAMMDD_hhmmss.sis</code> a <code>AAAAMMDD_hhmmss.sis</code>.</li>
+            <li><b>Extracción desde <code>mseed/registros/</code> (si existen registros continuos):</b> corta las ventanas <code>[t_inicio, t_final]</code> de <code>AAAAMMDD_aux.csv</code> usando la clasificación oficial de <code>AAAAMMDD000000.csv</code>. Los eventos clasificados como <code>Ruido</code> nunca se extraen.</li>
+            <li><b>Sincronización automática contra <code>mseed/eventos/</code>:</b> incluso en días históricos donde ya no existan registros continuos en <code>mseed/registros/</code>, revisa si algún evento tiene <code>'-'</code> en <code>AAAAMMDD000000.csv</code> pese a tener un <code>.mseed</code> real en <code>mseed/eventos/</code>, y completa su token base (<code>EEEEC0000000</code>, no aportante por defecto) para evitar errores al revisar el día en Procesamiento.</li>
+            <li><b>Actualización de <code>AAAAMMDD000000.csv</code>, creación/estandarización de <code>AAAAMMDD_aux.csv</code> y <code>archivo_tiempos</code>:</b> consolida, ordena cronológicamente y elimina duplicados. Además, <b>crea o completa automáticamente <code>AAAAMMDD_aux.csv</code></b> (9 columnas en formato de 4 dígitos) para todos los eventos del día —incluso en días históricos que nunca tuvieron <code>_aux.csv</code> ni registros continuos en <code>mseed/registros/</code>—, calculando sus ventanas reales <code>[t_inicio, t_final]</code> desde la cabecera de los <code>.mseed</code> en <code>mseed/eventos/</code> (o desde la hora del <code>.sis</code> + 60 s si no hay señal).</li>
+            <li><b>Regeneración del consolidado diario y cascada (si está marcado):</b> reconstruye <code>_cat.csv</code>, <code>_rep.csv</code>, <code>_res.csv</code>, <code>_resp.csv</code> y <code>.xml</code> (ya en 4 dígitos) y actualiza los períodos emitidos.</li>
+        </ol>
+    </div>
+
+    <div class="caja-alerta">
+        <b>Protección de estaciones aportantes (<code>HAB</code>):</b> los tokens creados automáticamente al detectar un <code>.mseed</code> faltante se inicializan con <code>pos5 = '0'</code> (no aportante) para evitar que señales con ruido se grafiquen en informes oficiales. Para incluir una estación como aportante en los reportes acelerográficos, márquela con <code>HAB</code> en <b>Procesamiento integrado</b>.<br><br>
+        <b>Días sin archivos:</b> Si un día del rango no tiene carpeta o no existe <code>AAAAMMDD000000.csv</code>, se omite de forma segura, queda registrado en la bitácora y el proceso continúa con el día siguiente sin interrumpirse.
+    </div>
+    """
+
+    html_casos = """
+    <h2>Casos de Uso Frecuentes</h2>
+    <ul>
+        <li><b>1. Se recuperaron registros continuos de una estación digital que estuvo fuera de línea:</b>
+            <br>Copie los archivos diarios en <code>mseed/registros/</code>, seleccione el rango de fechas, <b>desmarque</b> <i>Sobrescribir .mseed existentes</i>, deje <b>desmarcado</b> <i>.sis</i> y <b>marcados</b> <i>Regenerar consolidado diario</i> y <i>Normalizar a año de 4 dígitos</i>. El sistema extraerá solo los eventos de la estación nueva, completará sus tokens en <code>AAAAMMDD000000.csv</code> y actualizará los consolidados.</li>
+        <li><b>2. Error o inconsistencia por <code>'-'</code> en <code>AAAAMMDD000000.csv</code> cuando sí existen archivos <code>.mseed</code> en <code>mseed/eventos/</code>:</b>
+            <br>Seleccione el día o período con <i>Regenerar consolidado diario</i> marcado. Aunque no existan registros continuos, el sistema sincronizará los tokens faltantes y dejará el día listo para abrirse en Procesamiento y Reportes.</li>
+        <li><b>3. Migración definitiva de años históricos (2020–2024) de 2 dígitos a 4 dígitos (<code>AAMMDD &rarr; AAAAMMDD</code>):</b>
+            <br>Seleccione el año o período histórico con <i>Normalizar archivos y registros a año de 4 dígitos</i> y <i>Regenerar consolidado diario</i> marcados (y <i>Sobrescribir .mseed</i> desmarcado si solo quiere migrar y sanear sin recorte). Toda la estructura del día y los catálogos quedarán estandarizados a 4 dígitos.</li>
+        <li><b>4. Reconstrucción completa tras reclasificaciones masivas o corrección de un período:</b>
+            <br>Marque <i>Solo reconstruir eventos presentes en AAAAMMDD000000.csv</i> y <i>Regenerar consolidado diario</i>; nunca perderá las clasificaciones cambiadas manualmente por los analistas.</li>
+    </ul>
+    """
+
+    return {
+        'ruta_ubicacion': 'Ingreso de Datos  ▸  Reconstrucción de eventos',
+        'subtitulo_estado': (
+            f"Período: {f_ini_txt} al {f_fin_txt}  |  Consolidado={'Sí' if reg_cons else 'No'}  |  "
+            f"Año 4 dígitos={'Sí' if norm_4d else 'No'}  |  PDF diario={'Sí' if reg_pdf else 'No'}"
+        ),
+        'indice_activo': 0,
+        'pestanas': [
+            ('1. Guía y Opciones', html_guia),
+            ('2. Flujo y Protección', html_flujo),
+            ('3. Casos de Uso', html_casos),
+        ],
+    }
+
+
 def construir_contexto_vivo(ventana_principal) -> dict:
     """
     Inspecciona el árbol actual de `ventana_principal` (`programa_integrado.py`):
@@ -1511,6 +1628,8 @@ def construir_contexto_vivo(ventana_principal) -> dict:
         return _ayuda_subprograma_fases(widget_activo)
     if nombre_clase == 'Otras_redes':
         return _ayuda_subprograma_otras_redes(widget_activo)
+    if nombre_clase == 'Reconstruccion_eventos':
+        return _ayuda_subprograma_reconstruccion_eventos(widget_activo)
     if nombre_clase == 'Reporte_diario':
         return _ayuda_subprograma_reporte_diario(widget_activo)
     if nombre_clase == 'Reporte_periodo':

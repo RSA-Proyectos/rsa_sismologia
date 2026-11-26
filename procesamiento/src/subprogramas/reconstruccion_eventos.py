@@ -58,6 +58,9 @@ class HiloReconstruccionPeriodo(QThread):
         sobrescribir_existentes=True,
         solo_presentes_en_csv=True,
         reconstruir_sis=False,
+        regenerar_consolidado_dia=True,
+        regenerar_pdf_diario=False,
+        normalizar_4_digitos=True,
         parent=None,
     ):
         super().__init__(parent)
@@ -68,6 +71,9 @@ class HiloReconstruccionPeriodo(QThread):
         self.sobrescribir_existentes = bool(sobrescribir_existentes)
         self.solo_presentes_en_csv = bool(solo_presentes_en_csv)
         self.reconstruir_sis = bool(reconstruir_sis)
+        self.regenerar_consolidado_dia = bool(regenerar_consolidado_dia)
+        self.regenerar_pdf_diario = bool(regenerar_pdf_diario)
+        self.normalizar_4_digitos = bool(normalizar_4_digitos)
         self._cancelado = False
 
     def solicitar_cancelacion(self):
@@ -86,6 +92,13 @@ class HiloReconstruccionPeriodo(QThread):
             'eventos_reconstruidos': 0,
             'mseed_generados': 0,
             'sis_generados': 0,
+            'tokens_sincronizados': 0,
+            'archivos_normalizados_4d': 0,
+            'eventos_normalizados_4d': 0,
+            'aux_creados': 0,
+            'aux_eventos_creados': 0,
+            'consolidados_regenerados': 0,
+            'pdfs_diarios_generados': 0,
             'ruido_omitidos': 0,
             'cancelado': False,
         }
@@ -126,6 +139,9 @@ class HiloReconstruccionPeriodo(QThread):
                     sobrescribir_existentes=self.sobrescribir_existentes,
                     solo_presentes_en_csv=self.solo_presentes_en_csv,
                     reconstruir_sis=self.reconstruir_sis,
+                    regenerar_consolidado_dia=self.regenerar_consolidado_dia,
+                    regenerar_pdf_diario=self.regenerar_pdf_diario,
+                    normalizar_4_digitos=self.normalizar_4_digitos,
                     parametros=parametros,
                     estaciones_analogicas=estaciones_analogicas,
                     progreso_callback=_cb_evento,
@@ -138,11 +154,37 @@ class HiloReconstruccionPeriodo(QThread):
                     resumen_global['eventos_reconstruidos'] += res_dia.get('eventos_reconstruidos', 0)
                     resumen_global['mseed_generados'] += res_dia.get('mseed_generados', 0)
                     resumen_global['sis_generados'] += res_dia.get('sis_generados', 0)
+                    resumen_global['tokens_sincronizados'] += res_dia.get('tokens_sincronizados', 0)
+                    resumen_global['archivos_normalizados_4d'] += res_dia.get('archivos_normalizados_4d', 0)
+                    resumen_global['eventos_normalizados_4d'] += res_dia.get('eventos_normalizados_4d', 0)
+                    if res_dia.get('aux_creado_nuevo'):
+                        resumen_global['aux_creados'] += 1
+                    resumen_global['aux_eventos_creados'] += res_dia.get('aux_eventos_creados', 0)
+                    if res_dia.get('consolidado_regenerado'):
+                        resumen_global['consolidados_regenerados'] += 1
+                    if res_dia.get('pdf_diario_generado'):
+                        resumen_global['pdfs_diarios_generados'] += 1
                     resumen_global['ruido_omitidos'] += res_dia.get('ruido_omitidos', 0)
+                    extras = []
+                    if res_dia.get('archivos_normalizados_4d', 0) > 0:
+                        extras.append(f"{res_dia['archivos_normalizados_4d']} arch→4D")
+                    if res_dia.get('eventos_normalizados_4d', 0) > 0:
+                        extras.append(f"{res_dia['eventos_normalizados_4d']} ev→4D")
+                    if res_dia.get('aux_creado_nuevo'):
+                        extras.append(f"_aux creado ({res_dia.get('aux_eventos_creados', 0)} ev)")
+                    elif res_dia.get('aux_eventos_creados', 0) > 0:
+                        extras.append(f"_aux +{res_dia['aux_eventos_creados']} ev")
+                    if res_dia.get('tokens_sincronizados', 0) > 0:
+                        extras.append(f"+{res_dia['tokens_sincronizados']} tokens")
+                    if res_dia.get('consolidado_regenerado'):
+                        extras.append("consolidado OK")
+                    if res_dia.get('pdf_diario_generado'):
+                        extras.append("PDF OK")
+                    txt_extras = f" | {', '.join(extras)}" if extras else ""
                     self.mensaje_bitacora.emit(
                         f"✓ {fecha_str}: {res_dia['eventos_reconstruidos']} eventos "
                         f"({res_dia['mseed_generados']} .mseed, {res_dia['sis_generados']} .sis, "
-                        f"{res_dia['ruido_omitidos']} ruido)"
+                        f"{res_dia['ruido_omitidos']} ruido){txt_extras}"
                     )
                 elif estado == 'cancelado':
                     resumen_global['cancelado'] = True
@@ -191,6 +233,14 @@ class Reconstruccion_eventos(QMainWindow):
         self.btn_reconstruir.clicked.connect(self.iniciar_reconstruccion)
         self.btn_cancelar.clicked.connect(self.cancelar_reconstruccion)
         self.btn_salir.clicked.connect(self.close)
+        self.chk_regenerar_consolidado.stateChanged.connect(self._sincronizar_chk_pdf)
+        self._sincronizar_chk_pdf()
+
+    def _sincronizar_chk_pdf(self):
+        hab = self.chk_regenerar_consolidado.isChecked()
+        self.chk_regenerar_pdf_diario.setEnabled(hab)
+        if not hab:
+            self.chk_regenerar_pdf_diario.setChecked(False)
 
     def _agregar_log(self, texto):
         self.txt_bitacora.appendPlainText(texto)
@@ -201,6 +251,9 @@ class Reconstruccion_eventos(QMainWindow):
         self.chk_solo_en_csv.setEnabled(not ejecutando)
         self.chk_sobrescribir.setEnabled(not ejecutando)
         self.chk_reconstruir_sis.setEnabled(not ejecutando)
+        self.chk_regenerar_consolidado.setEnabled(not ejecutando)
+        self.chk_regenerar_pdf_diario.setEnabled((not ejecutando) and self.chk_regenerar_consolidado.isChecked())
+        self.chk_normalizar_4d.setEnabled(not ejecutando)
         self.btn_reconstruir.setEnabled(not ejecutando)
         self.btn_cancelar.setEnabled(ejecutando)
         self.btn_salir.setEnabled(not ejecutando)
@@ -234,6 +287,9 @@ class Reconstruccion_eventos(QMainWindow):
             f"Solo presentes en AAAAMMDD000000.csv: {'Sí' if self.chk_solo_en_csv.isChecked() else 'No'}\n"
             f"Sobrescribir existentes: {'Sí' if self.chk_sobrescribir.isChecked() else 'No'}\n"
             f"Reconstruir archivos .sis: {'Sí' if self.chk_reconstruir_sis.isChecked() else 'No'}\n"
+            f"Regenerar consolidado diario: {'Sí' if self.chk_regenerar_consolidado.isChecked() else 'No'}\n"
+            f"Regenerar PDF diario: {'Sí' if self.chk_regenerar_pdf_diario.isChecked() else 'No'}\n"
+            f"Normalizar a año de 4 dígitos: {'Sí' if self.chk_normalizar_4d.isChecked() else 'No'}\n"
             f"---------------------------------------------"
         )
 
@@ -252,6 +308,9 @@ class Reconstruccion_eventos(QMainWindow):
             sobrescribir_existentes=self.chk_sobrescribir.isChecked(),
             solo_presentes_en_csv=self.chk_solo_en_csv.isChecked(),
             reconstruir_sis=self.chk_reconstruir_sis.isChecked(),
+            regenerar_consolidado_dia=self.chk_regenerar_consolidado.isChecked(),
+            regenerar_pdf_diario=self.chk_regenerar_pdf_diario.isChecked(),
+            normalizar_4_digitos=self.chk_normalizar_4d.isChecked(),
             parent=self,
         )
         self.hilo_trabajo.progreso_dia.connect(self._actualizar_progreso_dia)
@@ -291,6 +350,12 @@ class Reconstruccion_eventos(QMainWindow):
             f"  • Eventos procesados:   {resumen.get('eventos_reconstruidos', 0)}\n"
             f"  • Archivos .mseed:      {resumen.get('mseed_generados', 0)}\n"
             f"  • Archivos .sis:        {resumen.get('sis_generados', 0)}\n"
+            f"  • Tokens sincronizados: {resumen.get('tokens_sincronizados', 0)}\n"
+            f"  • Archivos migrados 4D: {resumen.get('archivos_normalizados_4d', 0)}\n"
+            f"  • Eventos CSV → 4D:     {resumen.get('eventos_normalizados_4d', 0)}\n"
+            f"  • Archivos _aux creados:{resumen.get('aux_creados', 0)} ({resumen.get('aux_eventos_creados', 0)} ventanas generadas)\n"
+            f"  • Consolidados diarios: {resumen.get('consolidados_regenerados', 0)}\n"
+            f"  • PDFs diarios:         {resumen.get('pdfs_diarios_generados', 0)}\n"
             f"  • Eventos Ruido (sin extraer): {resumen.get('ruido_omitidos', 0)}"
         )
         self._agregar_log(resumen_msg)
@@ -302,7 +367,9 @@ class Reconstruccion_eventos(QMainWindow):
             f"Días reconstruidos: {resumen.get('dias_reconstruidos', 0)} de {resumen.get('total_dias', 0)}\n"
             f"Eventos procesados: {resumen.get('eventos_reconstruidos', 0)}\n"
             f"Archivos .mseed generados: {resumen.get('mseed_generados', 0)}\n"
-            f"Archivos .sis generados: {resumen.get('sis_generados', 0)}",
+            f"Tokens sincronizados: {resumen.get('tokens_sincronizados', 0)}\n"
+            f"Migrados a 4 dígitos: {resumen.get('archivos_normalizados_4d', 0)} archivos / {resumen.get('eventos_normalizados_4d', 0)} eventos\n"
+            f"Consolidados diarios regenerados: {resumen.get('consolidados_regenerados', 0)}",
         )
 
     def limpiar_estado(self):

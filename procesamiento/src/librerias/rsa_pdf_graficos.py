@@ -711,156 +711,419 @@ def grafico_cobertura(lienzo, evento, coordenadas, tamanio, directorio_trabajo):
     return lienzo
 
 
-def imprimir_acelerograma(tamanio,trcanal,componente,factor,bandera):
+def _reducir_envolvente_minmax(arr, max_puntos=2000):
+    """
+    Reduce una serie temporal larga a un máximo de `max_puntos` conservando el mínimo
+    y máximo exactos de cada ventana (en su orden temporal real). Así el gráfico en
+    ReportLab es visualmente idéntico pero ~40x más rápido y liviano.
+    """
+    datos = np.asarray(arr, dtype=np.float64)
+    n = datos.size
+    if n <= max_puntos or max_puntos < 4:
+        return datos.tolist()
+    n_bins = max_puntos // 2
+    limites = np.linspace(0, n, n_bins + 1, dtype=np.int64)
+    salida = np.empty(n_bins * 2, dtype=np.float64)
+    for b in range(n_bins):
+        i0, i1 = limites[b], limites[b + 1]
+        if i1 <= i0:
+            val = datos[min(i0, n - 1)]
+            salida[2 * b] = val
+            salida[2 * b + 1] = val
+            continue
+        seg = datos[i0:i1]
+        idx_min = int(np.argmin(seg))
+        idx_max = int(np.argmax(seg))
+        if idx_min <= idx_max:
+            salida[2 * b] = seg[idx_min]
+            salida[2 * b + 1] = seg[idx_max]
+        else:
+            salida[2 * b] = seg[idx_max]
+            salida[2 * b + 1] = seg[idx_min]
+    return salida.tolist()
+
+
+def _reducir_espectro_max(x_arr, y_arr, max_puntos=1500):
+    """
+    Reduce el espectro de Fourier preservando los picos máximos por ventana logarítmica
+    para evitar decenas de miles de segmentos vectoriales en ReportLab LinePlot.
+    """
+    x_np = np.asarray(x_arr, dtype=np.float64)
+    y_np = np.asarray(y_arr, dtype=np.float64)
+    n = min(x_np.size, y_np.size)
+    if n <= max_puntos or max_puntos < 4:
+        return x_np[:n].tolist(), y_np[:n].tolist()
+    limites = np.linspace(0, n, max_puntos + 1, dtype=np.int64)
+    x_out = np.empty(max_puntos, dtype=np.float64)
+    y_out = np.empty(max_puntos, dtype=np.float64)
+    for b in range(max_puntos):
+        i0, i1 = limites[b], limites[b + 1]
+        if i1 <= i0:
+            i_sel = min(i0, n - 1)
+        else:
+            i_sel = i0 + int(np.argmax(y_np[i0:i1]))
+        x_out[b] = x_np[i_sel]
+        y_out[b] = y_np[i_sel]
+    return x_out.tolist(), y_out.tolist()
+
+
+def _resolver_ruta_cache_acelerograma(ruta_mseed: str, dir_acelerogramas: str = None) -> str:
+    """
+    Resuelve la ruta canónica del caché comprimido (.npz) dentro de:
+        <Directorio_acelerogramas>/señales/<stem_mseed>.npz
+    """
+    p_mseed = Path(ruta_mseed)
+    if dir_acelerogramas:
+        base_acel = Path(dir_acelerogramas)
+    else:
+        # .../AAAA_MM_DD/mseed/eventos/EST_AAAAMMDD_hhmmss.mseed -> .../AAAA_MM_DD/acelerogramas
+        base_dia = p_mseed.parent.parent.parent if len(p_mseed.parents) >= 3 else p_mseed.parent
+        base_acel = base_dia / "acelerogramas"
+    return str(base_acel / "señales" / f"{p_mseed.stem}.npz")
+
+
+def obtener_o_calcular_cache_acelerograma(
+    ruta_mseed: str,
+    factor: float,
+    dir_acelerogramas: str = None,
+    trcanal=None,
+    solo_maximos: bool = False,
+):
+    """
+    Carga desde `<Directorio_acelerogramas>/señales/<EST>_<AAAAMMDD>_<hhmmss>.npz`
+    las señales corregidas, máximos exactos (acel/vel/desp), espectro FFT y espectro
+    de respuesta al 5% si el archivo existe y el `.mseed` original no ha cambiado
+    (verificado por mtime, size y factor).
+
+    Si no existe o cambió el `.mseed`, calcula las 3 componentes una sola vez, guarda
+    el `.npz` comprimido y devuelve el diccionario listo para Etapa 2 (PGA) y Etapa 3 (PDF).
+    """
+    if not ruta_mseed or not os.path.isfile(ruta_mseed):
+        return None
+
+    stat_ms = os.stat(ruta_mseed)
+    mtime_actual = float(stat_ms.st_mtime)
+    size_actual = int(stat_ms.st_size)
+    factor_f = float(factor)
+    ruta_npz = _resolver_ruta_cache_acelerograma(ruta_mseed, dir_acelerogramas)
+
+    # 1. Intentar carga instantánea desde caché si está vigente
+    if os.path.isfile(ruta_npz):
+        try:
+            with np.load(ruta_npz, allow_pickle=False) as z:
+                if (
+                    abs(float(z['mseed_mtime']) - mtime_actual) < 1e-3
+                    and int(z['mseed_size']) == size_actual
+                    and abs(float(z['factor']) - factor_f) < 1e-9
+                    and int(z['version']) == 1
+                ):
+                    maximos_arr = z['maximos']  # shape (3, 3): [comp][acel, vel, desp]
+                    pga_global = float(np.max(maximos_arr[:, 0])) if maximos_arr.size > 0 else 0.0
+                    if solo_maximos:
+                        return {
+                            'pga_max': pga_global,
+                            'maximos': maximos_arr.tolist(),
+                            'ruta_npz': ruta_npz,
+                        }
+                    componentes = []
+                    n_comp = int(z['n_comp'])
+                    for c_idx in range(n_comp):
+                        componentes.append({
+                            'maximos': maximos_arr[c_idx].tolist(),
+                            'acel_plot': z[f'c{c_idx}_acel'].tolist(),
+                            'vel_plot': z[f'c{c_idx}_vel'].tolist(),
+                            'desp_plot': z[f'c{c_idx}_desp'].tolist(),
+                            'frec_log': z[f'c{c_idx}_frec'].tolist(),
+                            'y_f': z[f'c{c_idx}_yf'].tolist(),
+                            'y_f_max': float(z[f'c{c_idx}_yf_max']),
+                            'T': z[f'c{c_idx}_T'].tolist(),
+                            'Spa': z[f'c{c_idx}_Spa'].tolist(),
+                        })
+                    from obspy import UTCDateTime
+                    return {
+                        'pga_max': pga_global,
+                        'maximos': maximos_arr.tolist(),
+                        'componentes': componentes,
+                        'tiempo_inicio': UTCDateTime(float(z['tiempo_inicio'])),
+                        'tiempo_inicial': float(z['tiempo_inicial']),
+                        'duracion': float(z['duracion']),
+                        'catNames': [str(x) for x in z['catNames'].tolist()],
+                        'ruta_npz': ruta_npz,
+                    }
+        except Exception:
+            pass
+
+    # 2. Calcular una sola vez desde el .mseed y persistir en acelerogramas/señales/
+    try:
+        if trcanal is None or len(trcanal) == 0:
+            from obspy import read as obspy_read
+            trcanal = obspy_read(ruta_mseed)
+        if len(trcanal) == 0:
+            return None
+
+        tiempo_inicio, tiempo_inicial, duracion, catNames = obtener_marcas_tiempo(trcanal)
+        n_comp = min(3, len(trcanal))
+        maximos_arr = np.zeros((3, 3), dtype=np.float64)
+        componentes = []
+        payload_npz = {
+            'version': np.int32(1),
+            'mseed_mtime': np.float64(mtime_actual),
+            'mseed_size': np.int64(size_actual),
+            'factor': np.float64(factor_f),
+            'n_comp': np.int32(n_comp),
+            'tiempo_inicio': np.float64(tiempo_inicio.timestamp if hasattr(tiempo_inicio, 'timestamp') else float(tiempo_inicio)),
+            'tiempo_inicial': np.float64(tiempo_inicial),
+            'duracion': np.float64(duracion),
+            'catNames': np.array(catNames, dtype='<U16'),
+        }
+
+        muestreo = float(trcanal[0].stats.sampling_rate)
+        delta_tr = float(trcanal[0].stats.delta)
+
+        for c_idx in range(n_comp):
+            seniales = correccion(trcanal[c_idx], factor_f)  # [aceleración, velocidad, desplazamiento]
+            aceleracion = np.asarray(seniales[0], dtype=np.float64)
+            velocidad = np.asarray(seniales[1], dtype=np.float64)
+            desplazamiento = np.asarray(seniales[2], dtype=np.float64)
+
+            max_a = float(np.max(np.abs(aceleracion))) if aceleracion.size > 0 else 0.0
+            max_v = float(np.max(np.abs(velocidad))) if velocidad.size > 0 else 0.0
+            max_d = float(np.max(np.abs(desplazamiento))) if desplazamiento.size > 0 else 0.0
+            maximos_arr[c_idx] = [max_a, max_v, max_d]
+
+            # FFT exacta sobre el 100% de las muestras originales
+            N = len(aceleracion)
+            f_max = 30.0
+            delta_f = 1.0 / (N * delta_tr) if (N * delta_tr) > 0 else 1.0
+            N_valores = max(1, int(0.1 / delta_f))
+            N_max = max(N_valores + 1, int(N // (muestreo / f_max))) if muestreo > 0 else N
+            frec_ = np.arange(N_valores, N_max, dtype=np.float64) * delta_f
+            frec_log_full = np.where(frec_ > 0, np.log10(np.maximum(frec_, 1e-12)), -1.0)
+            y_f = scipy.fft.fft(aceleracion)
+            y_f_full = (2.0 / N) * np.abs(y_f[:N_max]).astype(np.float64) if N > 0 else np.zeros(1)
+            y_f_max = float(np.max(1.2 * y_f_full)) if y_f_full.size > 0 else 1e-6
+
+            frec_log_red, y_f_red = _reducir_espectro_max(frec_log_full, y_f_full[N_valores:], max_puntos=1500)
+
+            # Espectro de respuesta exacto (5%) sobre el 100% de las muestras originales
+            dt_c = float(trcanal[c_idx].stats.delta)
+            T_arr, Spa_arr, _, _, _, _ = espectro_respuesta(aceleracion, dt_c, 1.0, '')
+
+            # Envolventes exactas min-max para trazado rápido en ReportLab
+            acel_plot = _reducir_envolvente_minmax(aceleracion, max_puntos=2000)
+            vel_plot = _reducir_envolvente_minmax(velocidad, max_puntos=2000)
+            desp_plot = _reducir_envolvente_minmax(desplazamiento, max_puntos=2000)
+
+            payload_npz[f'c{c_idx}_acel'] = np.asarray(acel_plot, dtype=np.float32)
+            payload_npz[f'c{c_idx}_vel'] = np.asarray(vel_plot, dtype=np.float32)
+            payload_npz[f'c{c_idx}_desp'] = np.asarray(desp_plot, dtype=np.float32)
+            payload_npz[f'c{c_idx}_frec'] = np.asarray(frec_log_red, dtype=np.float32)
+            payload_npz[f'c{c_idx}_yf'] = np.asarray(y_f_red, dtype=np.float32)
+            payload_npz[f'c{c_idx}_yf_max'] = np.float64(y_f_max)
+            payload_npz[f'c{c_idx}_T'] = np.asarray(T_arr, dtype=np.float32)
+            payload_npz[f'c{c_idx}_Spa'] = np.asarray(Spa_arr, dtype=np.float32)
+
+            componentes.append({
+                'maximos': [max_a, max_v, max_d],
+                'acel_plot': acel_plot,
+                'vel_plot': vel_plot,
+                'desp_plot': desp_plot,
+                'frec_log': frec_log_red,
+                'y_f': y_f_red,
+                'y_f_max': y_f_max,
+                'T': T_arr.tolist(),
+                'Spa': Spa_arr.tolist(),
+            })
+
+        payload_npz['maximos'] = maximos_arr
+        try:
+            os.makedirs(os.path.dirname(ruta_npz), exist_ok=True)
+            np.savez_compressed(ruta_npz, **payload_npz)
+        except Exception as e_save:
+            print(f"Aviso guardando caché acelerográfico {ruta_npz}: {e_save}")
+
+        pga_global = float(np.max(maximos_arr[:, 0]))
+        return {
+            'pga_max': pga_global,
+            'maximos': maximos_arr.tolist(),
+            'componentes': componentes,
+            'tiempo_inicio': tiempo_inicio,
+            'tiempo_inicial': float(tiempo_inicial),
+            'duracion': float(duracion),
+            'catNames': list(catNames),
+            'ruta_npz': ruta_npz,
+        }
+    except Exception as e_calc:
+        print(f"Aviso calculando caché acelerográfico {ruta_mseed}: {e_calc}")
+        return None
+
+
+def imprimir_acelerograma(tamanio,trcanal,componente,factor,bandera,cache_acel=None):
     #tamanio--------- Tamaño del grafico
     #trcanal--------- achivo mseed con la informacion de la estacion 
     #componente------ Componente del acelerograma
     #factor---------- Ganancia para obtener los datos reales del acelerograma, diferenciado en entre estaciones de registro continuo en entero y los ETNA en punto flotante
     #bandera--------- Variable para mostrar o no el grafico en matplotlib de la señal, es para diferenciar un informe detallado o no.  Solo en reportes individuales de acelerogramas.
+    #cache_acel------ Diccionario opcional precalculado desde acelerogramas/señales/*.npz
     ancho=tamanio[0]
     alto=tamanio[1]
-    tiempo_inicio,tiempo_inicial,duracion, catNames=obtener_marcas_tiempo(trcanal)
     titulo_=(("Aceleración:   cm/s²      Aceleracion máxima:"," cm/s²"),("Velocidad:  cm/s        Velocidad  máxima:"," cm/s"),("Desplazamiento:   cm     Desplazamiento  máximo:"," cm"))
     drawing = Drawing(ancho,alto)
-    N=trcanal[0].stats.npts
-    muestreo=trcanal[0].stats.sampling_rate
-    # Crear etiquetas de tiempo
-    #for i in range(0, int(duracion/10)):
-        #catNames.append(str(i*10))
-    # Procesar componente específica
     senial_ascii=[]
-    for i in range(componente,componente+1):
-        # Corrección de señales
-        seniales=correccion(trcanal[i],factor)# [aceleración, velocidad, desplazamiento]
+
+    usar_cache = (
+        cache_acel is not None
+        and bandera
+        and 'componentes' in cache_acel
+        and componente < len(cache_acel['componentes'])
+    )
+
+    if usar_cache:
+        catNames = cache_acel['catNames']
+        comp_data = cache_acel['componentes'][componente]
+        seniales_plot = [comp_data['acel_plot'], comp_data['vel_plot'], comp_data['desp_plot']]
+        maximos_exactos = comp_data['maximos']
+        frec_log_plot = comp_data['frec_log']
+        y_f_plot = comp_data['y_f']
+        y_f_max = comp_data['y_f_max']
+        T = comp_data['T']
+        Spa = comp_data['Spa']
+    else:
+        tiempo_inicio,tiempo_inicial,duracion, catNames=obtener_marcas_tiempo(trcanal)
+        muestreo=trcanal[0].stats.sampling_rate
+        seniales=correccion(trcanal[componente],factor)# [aceleración, velocidad, desplazamiento]
         aceleracion=seniales[0]
         senial_ascii.append(aceleracion)
         N=len(aceleracion)
-        # Cálculo del espectro de aceleración
         f_max=30
         delta=trcanal[0].stats.delta
         delta_f=1/(N*delta) if (N*delta) > 0 else 1.0
         N_valores=max(1, int(.1/delta_f))
         N_max=max(N_valores + 1, int(N//(muestreo/f_max))) if muestreo > 0 else N
-        frec_= [i*delta_f for i in range(N_max)]
+        frec_= [k*delta_f for k in range(N_max)]
         frec_log=[math.log10(val) if val > 0 else -1.0 for val in frec_[N_valores:]]
         y_f = scipy.fft.fft(aceleracion)
         y_f_=(1./N)*2* np.abs(y_f[:N_max]).astype(float)
+        y_f_max = float(max(1.2*y_f_)) if len(y_f_) > 0 else 1e-6
+
+        dt = trcanal[componente].stats.delta
+        T, Spa, Spv, Sd, Sa, Sv = espectro_respuesta(aceleracion, dt, 1, '')
 
         if not(bandera):
-            # Cálculo del espectro de respuesta
-            dt=trcanal[i].stats.delta# Paso temporal del registro (s)
-            T, Spa, Spv, Sd, Sa, Sv=espectro_respuesta(aceleracion,dt,1,'')
-
             fig, ax = plt.subplots()
             ax.set_xscale('log')
             ax.plot(frec_,y_f_)
             ax.set_xlim([0.1, f_max])
             plt.show()
-#Inica el grafico en el chart
-        label = String(640, 253, 'Frecuencia(Hz)', fontSize=10)
-        drawing.add(label)
-        label = String(600, 453, 'ESPECTRO DE ACELERACIÓN', fontSize=12) #440
-        drawing.add(label)
-        label = Label()
-        label.setOrigin(495, 380)#340
-        label.angle = 90
-        label.boxAnchor = 'ne'
-        label.setText('Aceleración cm/s²')
-        drawing.add(label)
-        # Agregar espectro de aceleración al gráfico
-        coorx=545
-        coory=275
-        r = Rect(coorx,  coory, 280, 170,strokeWidth = 1,fillColor=white,fillOpacity=0.6)
+
+        frec_log_plot, y_f_plot = _reducir_espectro_max(frec_log, y_f_[N_valores:], max_puntos=1500)
+        maximos_exactos = [
+            float(max(abs(max(seniales[j])), abs(min(seniales[j]))))
+            for j in range(3)
+        ]
+        seniales_plot = [_reducir_envolvente_minmax(seniales[j], max_puntos=2000) for j in range(3)]
+
+    # Inicia el grafico en el chart
+    label = String(640, 253, 'Frecuencia(Hz)', fontSize=10)
+    drawing.add(label)
+    label = String(600, 453, 'ESPECTRO DE ACELERACIÓN', fontSize=12) #440
+    drawing.add(label)
+    label = Label()
+    label.setOrigin(495, 380)#340
+    label.angle = 90
+    label.boxAnchor = 'ne'
+    label.setText('Aceleración cm/s²')
+    drawing.add(label)
+    # Agregar espectro de aceleración al gráfico
+    coorx=545
+    coory=275
+    r = Rect(coorx,  coory, 280, 170,strokeWidth = 1,fillColor=white,fillOpacity=0.6)
+    drawing.add(r)
+    lp = LinePlot()
+    lp.x = coorx
+    lp.y = coory
+    lp.height = 170
+    lp.width = 280
+    lp.data = [list(zip(frec_log_plot, y_f_plot))]
+    lp.lines[0].strokeWidth = 1
+    lp.lines[0].symbol = None
+    lp.lines[0].strokeColor = colors.blue
+    lp.xValueAxis.valueSteps = [-1,-0.699,-0.523,-0.368,-0.301,-0.222,-0.155,-0.097,-0.046,0,0.301,0.477,0.602,0.699,0.778,0.845,0.903,0.954, 1.0,1.301]
+    lp.xValueAxis.labelTextFormat = [".1","","","","","","","","","1","","","","","","","","","10",""]
+    lp.xValueAxis.valueMin = -1 # valor mínimo del eje X
+    lp.xValueAxis.valueMax = 1.5 # valor máximo del eje X
+    lp.yValueAxis.valueMin = 0 # valor mínimo del eje Y
+    lp.yValueAxis.valueMax = y_f_max if y_f_max > 0 else 1e-6 # valor máximo del eje Y
+    drawing.add(lp)
+
+    # Agregar espectro de respuesta (tanto en reporte individual como en grupo)
+    label = String(645, 35, 'Periodo (s)', fontSize=10)
+    drawing.add(label)
+    label = String(615, 235, 'ESPECTRO DE RESPUESTA', fontSize=12)
+    drawing.add(label)
+    label = String(690, 220, 'Factor de Amortiguamiento del 5%', fontSize=9)
+    drawing.add(label)
+
+    label = Label()
+    label.setOrigin(500, 190)
+    label.angle = 90
+    label.boxAnchor = 'ne'
+    label.setText('Aceleración (g)')
+    drawing.add(label)
+
+    coory_espectro = coory - 215  # Espacio adicional para el espectro de respuesta
+    r_respuesta = Rect(
+        coorx, coory_espectro, 280, 170, strokeWidth=1, fillColor=white, fillOpacity=0.6
+    )
+    drawing.add(r_respuesta)
+    lp_respuesta = LinePlot()
+    lp_respuesta.x = coorx
+    lp_respuesta.y = coory_espectro
+    lp_respuesta.height = 170
+    lp_respuesta.width = 280
+    lp_respuesta.data = [list(zip(T, Spa))]
+    lp_respuesta.lines[0].strokeWidth = 1
+    lp_respuesta.lines[0].strokeColor = colors.blue
+    max_spa = float(np.max(1.1 * np.asarray(Spa, dtype=np.float64))) if len(Spa) > 0 else 0.0
+    lp_respuesta.yValueAxis.valueMin = 0
+    lp_respuesta.yValueAxis.valueMax = max_spa if max_spa > 0 else 1e-6
+    drawing.add(lp_respuesta)
+
+    # Graficar aceleración, velocidad y desplazamiento
+    maximos_componentes=[componente]
+
+    for j in range(0,3):
+        coorx=80
+        coory=340-j*alto*1.2
+        r = Rect(coorx,  coory, ancho, alto,strokeWidth = 1,fillColor=white,fillOpacity=0.6)
         drawing.add(r)
-        lp = LinePlot()
-        lp.x = coorx
-        lp.y = coory
-        lp.height = 170
-        lp.width = 280
-        lp.data = [list(zip(frec_log,y_f_[N_valores:]))]
-        lp.lines[0].strokeWidth = 1
-        lp.lines[0].symbol = None
-        lp.lines[0].strokeColor = colors.blue
-        #lp.xValueAxis.setTitle = 'Frecuencia (Hz)'
-        #lp.yValueAxis.setTitle = 'Aceleracion (cm/s²)'
-        lp.xValueAxis.valueSteps = [-1,-0.699,-0.523,-0.368,-0.301,-0.222,-0.155,-0.097,-0.046,0,0.301,0.477,0.602,0.699,0.778,0.845,0.903,0.954, 1.0,1.301]
-        lp.xValueAxis.labelTextFormat = [".1","","","","","","","","","1","","","","","","","","","10",""]#lambda x: str(round(10**x,0))
-        lp.xValueAxis.valueMin = -1 # valor mínimo del eje X
-        lp.xValueAxis.valueMax = 1.5 # valor máximo del eje X
-        lp.yValueAxis.valueMin = 0 # valor mínimo del eje Y
-        lp.yValueAxis.valueMax = max(1.2*y_f_) # valor máximo del eje Y
-        drawing.add(lp)
-
-        if not(bandera):
-            # Agregar espectro de respuesta
-
-            label = String(645, 35, 'Periodo (s)', fontSize=10)
-            drawing.add(label)
-            label = String(615, 235, 'ESPECTRO DE RESPUESTA', fontSize=12) 
-            drawing.add(label)
-            label = String(690, 220, 'Factor de Amortiguamiento del 5%', fontSize=9) 
-            drawing.add(label)
-
-            label = Label()
-            label.setOrigin(500, 190)
-            label.angle = 90
-            label.boxAnchor = 'ne'
-            label.setText('Aceleración (g)')
-            drawing.add(label)
-
-        
-            coory_espectro = coory - 215  # Espacio adicional para el espectro de respuesta  190
-            r_respuesta = Rect(
-                coorx, coory_espectro, 280, 170, strokeWidth=1, fillColor=white, fillOpacity=0.6
-            )   
-            drawing.add(r_respuesta)
-            lp_respuesta = LinePlot()
-            lp_respuesta.x = coorx
-            lp_respuesta.y = coory_espectro
-            lp_respuesta.height = 170
-            lp_respuesta.width = 280
-            lp_respuesta.data = [list(zip(T, Spa))]
-            lp_respuesta.lines[0].strokeWidth = 1
-            lp_respuesta.lines[0].strokeColor = colors.blue
-            lp_respuesta.yValueAxis.valueMax = max(1.1*Spa) # valor máximo del eje Y
-            drawing.add(lp_respuesta)
-
-        # Graficar aceleración, velocidad y desplazamiento    
-        maximos_componentes=[componente]
-        
-        for j in range(0,3):
-            coorx=80
-            coory=340-j*alto*1.2
-            r = Rect(coorx,  coory, ancho, alto,strokeWidth = 1,fillColor=white,fillOpacity=0.6)
-            drawing.add(r)
-            maximo=max(abs(max(seniales[j])),abs(min(seniales[j])))#maximo=max(abs(max(datos[0])),abs(min(datos[0])))
-            maximos_componentes.append(maximo)
-            max_value=1.1*maximo
-            min_value = -max_value
-            lab = Label()
-            lab.setOrigin(250, coory+alto+6)
-            lab.setText(titulo_[j][0]+str(round(maximo,5))+titulo_[j][1])
-            lab.dx = 0
-            lab.dy = 0
-            drawing.add(lab)
-            lc = HorizontalLineChart()
-            lc.x = coorx
-            lc.y =coory
-            lc.height = alto
-            lc.width = ancho
-            lc.data = [seniales[j]]
-            lc.joinedLines = 1
-            lc.categoryAxis.categoryNames = catNames
-            lc.categoryAxis.visible = 0 #Hace invisible el eje x
-            lc.valueAxis.visible = 1   #Hace invisible el eje y
-            lc.categoryAxis.labels.boxAnchor = 'n'
-            lc.valueAxis.valueMin = min_value
-            lc.valueAxis.valueMax = max_value
-            lc.valueAxis.valueStep = escalado(maximo)
-            lc.lines[0].strokeColor = colors.blue
-            lc.lines[0].strokeWidth = 0.5
-            drawing.add(lc)
-            #marcar_tiempo(lienzo,x_,y_,tiempo_inicio,duracion,catNames)
+        maximo = maximos_exactos[j]
+        maximos_componentes.append(maximo)
+        max_value = 1.1 * maximo if maximo > 0 else 1e-6
+        min_value = -max_value
+        lab = Label()
+        lab.setOrigin(250, coory+alto+6)
+        lab.setText(titulo_[j][0]+str(round(maximo,5))+titulo_[j][1])
+        lab.dx = 0
+        lab.dy = 0
+        drawing.add(lab)
+        lc = HorizontalLineChart()
+        lc.x = coorx
+        lc.y = coory
+        lc.height = alto
+        lc.width = ancho
+        lc.data = [seniales_plot[j]]
+        lc.joinedLines = 1
+        lc.categoryAxis.categoryNames = catNames
+        lc.categoryAxis.visible = 0 #Hace invisible el eje x
+        lc.valueAxis.visible = 1   #Hace invisible el eje y
+        lc.categoryAxis.labels.boxAnchor = 'n'
+        lc.valueAxis.valueMin = min_value
+        lc.valueAxis.valueMax = max_value
+        lc.valueAxis.valueStep = escalado(maximo) if maximo > 0 else 1e-6
+        lc.lines[0].strokeColor = colors.blue
+        lc.lines[0].strokeWidth = 0.5
+        drawing.add(lc)
     return drawing,maximos_componentes,senial_ascii   
 
 def imprimir_seniales(tamanio,canales,trcanal,evento,bandera_seniales,bandera_zoom):

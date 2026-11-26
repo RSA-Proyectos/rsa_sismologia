@@ -1,0 +1,37 @@
+# =============================================================================
+# Dependencias de ejecucion - Sistema Integrado RSA Sismologia (Python 3.9)
+# =============================================================================
+# Instalacion automatica recomendada: ejecutar `instalar_entorno.bat`
+# Instalacion manual:
+#   C:\entornos\venv_py309\Scripts\python.exe -m pip install -r requirements.txt
+
+# --- Interfaz grafica (PyQt5) ---
+PyQt5==5.15.11
+PyQt5-Qt5==5.15.2
+PyQt5_sip==12.17.0
+
+# --- Nucleo cientifico y procesamiento de seniales ---
+numpy==1.21.5
+scipy==1.6.3
+matplotlib==3.4.3
+pandas==1.4.4
+obspy>=1.3.0,<1.5.0
+SQLAlchemy==1.3.24
+lxml==5.4.0
+requests==2.32.3
+
+# --- Reportes PDF y graficos ---
+reportlab==3.5.67
+pillow==11.2.1
+
+# --- Cartografia GIS y generacion de Shapefiles ---
+pyshp==2.3.1
+pyproj==3.0.1
+shapely==2.0.7
+fiona==1.9.5
+geopandas==0.9.0
+geographiclib==2.0
+
+# --- Utilidades Excel y Windows ---
+openpyxl==3.1.5
+pywin32==310

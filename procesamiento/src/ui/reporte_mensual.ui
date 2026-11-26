@@ -439,14 +439,14 @@
      </font>
     </property>
     <property name="title">
-     <string>3. REPORTES ESPECIALES POR ESTACIÓN (CSV / MSEED)</string>
+     <string>3. REPORTES ESPECIALES POR ESTACIÓN (PDF / CSV)</string>
     </property>
     <widget class="QLabel" name="lbl_est_tipo">
      <property name="geometry">
       <rect>
        <x>12</x>
-       <y>22</y>
-       <width>110</width>
+       <y>26</y>
+       <width>130</width>
        <height>18</height>
       </rect>
      </property>
@@ -461,99 +461,55 @@
       <string>Tipo de Evento:</string>
      </property>
     </widget>
-    <widget class="QLabel" name="lbl_est_nombre">
-     <property name="geometry">
-      <rect>
-       <x>130</x>
-       <y>22</y>
-       <width>150</width>
-       <height>18</height>
-      </rect>
-     </property>
-     <property name="font">
-      <font>
-       <pointsize>8</pointsize>
-       <weight>50</weight>
-       <bold>false</bold>
-      </font>
-     </property>
-     <property name="text">
-      <string>Estación Habilitada:</string>
-     </property>
-    </widget>
     <widget class="QComboBox" name="Cmb_bx_tipo_evento">
      <property name="geometry">
       <rect>
        <x>12</x>
-       <y>42</y>
-       <width>110</width>
-       <height>26</height>
-      </rect>
-     </property>
-     <property name="font">
-      <font>
-       <pointsize>9</pointsize>
-       <weight>50</weight>
-       <bold>false</bold>
-      </font>
-     </property>
-    </widget>
-    <widget class="QComboBox" name="Cmb_bx_estacion">
-     <property name="geometry">
-      <rect>
-       <x>130</x>
-       <y>42</y>
-       <width>155</width>
-       <height>26</height>
-      </rect>
-     </property>
-     <property name="font">
-      <font>
-       <pointsize>9</pointsize>
-       <weight>50</weight>
-       <bold>false</bold>
-      </font>
-     </property>
-    </widget>
-    <widget class="QPushButton" name="btn_estaciones">
-     <property name="geometry">
-      <rect>
-       <x>295</x>
-       <y>40</y>
-       <width>153</width>
+       <y>48</y>
+       <width>140</width>
        <height>30</height>
       </rect>
      </property>
      <property name="font">
       <font>
-       <pointsize>8</pointsize>
-       <weight>75</weight>
-       <bold>true</bold>
+       <pointsize>9</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
       </font>
-     </property>
-     <property name="text">
-      <string>Exportar Amplitudes CSV</string>
      </property>
     </widget>
     <widget class="QPushButton" name="btn_selector_estaciones">
      <property name="geometry">
       <rect>
-       <x>12</x>
-       <y>84</y>
-       <width>436</width>
-       <height>32</height>
+       <x>164</x>
+       <y>44</y>
+       <width>284</width>
+       <height>38</height>
       </rect>
      </property>
      <property name="font">
       <font>
-       <pointsize>8</pointsize>
-       <weight>50</weight>
-       <bold>false</bold>
+       <pointsize>9</pointsize>
+       <weight>75</weight>
+       <bold>true</bold>
       </font>
      </property>
      <property name="text">
-      <string>Selector Múltiple de Estaciones (Consultar archivos .mseed en el catálogo)</string>
+      <string>Seleccionar Estaciones y Generar...</string>
      </property>
+    </widget>
+    <!-- Controles heredados ocultos para retrocompatibilidad estricta de contratos -->
+    <widget class="QLabel" name="lbl_est_nombre">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+    <widget class="QComboBox" name="Cmb_bx_estacion">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+    <widget class="QPushButton" name="btn_estaciones">
+     <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+     <property name="visible"><bool>false</bool></property>
     </widget>
    </widget>
 
@@ -1201,7 +1157,7 @@
      </widget>
     </widget>
 
-    <!-- Sub-bloque C: Filtro de N° Mínimo de Estaciones (Mecanismos Focales) -->
+    <!-- Sub-bloque C: Exportación Independiente de Candidatos para Mecanismos Focales -->
     <widget class="QGroupBox" name="grupo_filtro_nest">
      <property name="geometry">
       <rect>
@@ -1219,14 +1175,14 @@
       </font>
      </property>
      <property name="title">
-      <string>Clasificación por N° Mínimo de Estaciones (Mecanismos Focales)</string>
+      <string>Candidatos Mecanismos Focales (Independiente — NO filtra el reporte)</string>
      </property>
      <widget class="QLabel" name="label_t_12">
       <property name="geometry">
        <rect>
         <x>10</x>
         <y>22</y>
-        <width>240</width>
+        <width>126</width>
         <height>22</height>
        </rect>
       </property>
@@ -1238,15 +1194,15 @@
        </font>
       </property>
       <property name="text">
-       <string>Mínimo de estaciones caracterizadas (&gt;=):</string>
+       <string>Mín. estaciones (&gt;=):</string>
       </property>
      </widget>
      <widget class="QComboBox" name="cmbx_n_estaciones">
       <property name="geometry">
        <rect>
-        <x>255</x>
+        <x>138</x>
         <y>21</y>
-        <width>85</width>
+        <width>70</width>
         <height>24</height>
        </rect>
       </property>
@@ -1258,28 +1214,57 @@
        </font>
       </property>
      </widget>
-     <widget class="QCheckBox" name="ck_nest_catalogo">
+     <widget class="QPushButton" name="btn_exportar_mecanismos">
       <property name="geometry">
        <rect>
-        <x>10</x>
-        <y>48</y>
-        <width>420</width>
-        <height>20</height>
+        <x>218</x>
+        <y>19</y>
+        <width>210</width>
+        <height>28</height>
        </rect>
       </property>
       <property name="font">
        <font>
         <pointsize>8</pointsize>
+        <weight>75</weight>
+        <bold>true</bold>
+       </font>
+      </property>
+      <property name="text">
+       <string>Exportar Candidatos (.csv / .xml)</string>
+      </property>
+      <property name="toolTip">
+       <string>Exporta por separado los eventos del período con &gt;= N estaciones para cálculo de mecanismos focales por evento, sin condicionar ni alterar el reporte convencional.</string>
+      </property>
+     </widget>
+     <widget class="QLabel" name="lbl_nota_mecanismos">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>50</y>
+        <width>418</width>
+        <height>18</height>
+       </rect>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>7</pointsize>
         <weight>50</weight>
         <bold>false</bold>
        </font>
       </property>
+      <property name="styleSheet">
+       <string notr="true">color: #555555;</string>
+      </property>
       <property name="text">
-       <string>Aplicar este mínimo de estaciones también al Catálogo / Mapa PDF (no solo al XML)</string>
+       <string>Acción independiente del botón Guardar: los reportes convencionales nunca se condicionan.</string>
       </property>
-      <property name="checked">
-       <bool>true</bool>
-      </property>
+     </widget>
+     <!-- Control heredado oculto para retrocompatibilidad -->
+     <widget class="QCheckBox" name="ck_nest_catalogo">
+      <property name="geometry"><rect><x>0</x><y>0</y><width>1</width><height>1</height></rect></property>
+      <property name="visible"><bool>false</bool></property>
+      <property name="checked"><bool>false</bool></property>
      </widget>
     </widget>
    </widget>

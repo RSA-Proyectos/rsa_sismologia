@@ -70,6 +70,8 @@ graph TD
 
 1. **Opción `.sis` desactivada por defecto (`chk_reconstruir_sis`)**: las estaciones incorporadas posteriormente suelen ser digitales, por lo que omitir la síntesis binaria analógica `.sis` ahorra tiempo en períodos largos.
 2. **Prioridad de clasificación de `AAAAMMDD000000.csv`**: siempre se memorizan primero las clasificaciones y tokens del CSV principal antes de recorrer `_aux.csv`.
+3. **Consolidación diaria integrada (`chk_regenerar_consolidado=True`, `chk_regenerar_pdf_diario=False`)**: además de extraer `.mseed` y sincronizar tokens `'-'` contra `mseed/eventos/` (incluso si ya no existen registros continuos en `mseed/registros/`), regenera los 6 archivos diarios oficiales (`cargar_dia` + `sincronizar_otras_redes_dia` + `Guardar_dia` + cascada a períodos emitidos) y opcionalmente el PDF diario.
+4. **Ayuda contextual integrada**: documentado en `ayuda_contextual.py` (Nivel 1 en `Ingreso de Datos` y Nivel 2 en `_ayuda_subprograma_reconstruccion_eventos` con 3 pestañas).
 
 ---
 

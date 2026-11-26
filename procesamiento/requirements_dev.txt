@@ -1,0 +1,8 @@
+# =============================================================================
+# Dependencias opcionales de desarrollo - RSA Sismologia (Python 3.9)
+# =============================================================================
+# Instalar solo en PCs de desarrollo (opcional en estaciones operativas):
+#   C:\entornos\venv_py309\Scripts\python.exe -m pip install -r requirements_dev.txt
+
+spyder==5.4.3
+spyder-kernels==2.4.4

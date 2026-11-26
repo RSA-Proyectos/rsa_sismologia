@@ -52,7 +52,8 @@ from rsa_pdf_reportes import impresion_reporte_sismo, impresion_reporte_acelerog
 
 from rsa_pdf_graficos import (mapa_configuracion,formato,mapa,
                               dibujo_sismos_,dibujar_lugar_geometrico_pdf,
-                              caja_simbologia,estadistica_)
+                              caja_simbologia,estadistica_,
+                              obtener_o_calcular_cache_acelerograma)
 
 
 from metodos_gestion import parametros_estaciones,obtener_directorios
@@ -118,7 +119,7 @@ def marcar_impresiones(lista_eventos,estaciones_informe,tipo_canal,mapa_):
 
 
 
-def imprimir_catalogo(catalogo,arbol,lienzo,directorio,estaciones_informe,tipo_canal,mapa_,raiz,detalle,banderas=None):
+def imprimir_catalogo(catalogo,arbol,lienzo,directorio,estaciones_informe,tipo_canal,mapa_,raiz,detalle,banderas=None,etapa_callback=None):
     #########################################################################################
     #Método que imprime el catalogo completo sea de un día como de un periodo.
     #########################################################################################
@@ -132,10 +133,20 @@ def imprimir_catalogo(catalogo,arbol,lienzo,directorio,estaciones_informe,tipo_c
     # raiz               -   base de datos XML
     # detalle            -   Averiguar que no me acuerdo
     # banderas           -   Diccionario maestro de banderas del reporte (opcional)
+    # etapa_callback     -   Callback opcional (num_et, tot_et, titulo, actual, total, detalle)
     usar_todas_estaciones = (
         banderas.get('graficar_todas_estaciones_mseed', (mapa_ == 1))
         if isinstance(banderas, dict) else (mapa_ == 1)
     )
+    # Conteo previo de eventos únicos válidos para progreso exacto
+    eventos_unicos_prev = set()
+    for fila_p in catalogo:
+        if not fila_p or fila_p[IDX_EVENTO] == 'ruta' or str(fila_p[IDX_FUENTE]).strip() in ('Ruido', 'CONTROL'):
+            continue
+        eventos_unicos_prev.add(fila_p[IDX_EVENTO])
+    total_ev_imp = max(1, len(eventos_unicos_prev))
+    ev_procesados = 0
+
     maximos_reporte=[]
     indice=0
     while indice<len(catalogo): #Trabaja sobre el catalogo sísmico generado, incluyendo los reportes de otras redes.
@@ -146,6 +157,14 @@ def imprimir_catalogo(catalogo,arbol,lienzo,directorio,estaciones_informe,tipo_c
         if catalogo[indice]==[] or catalogo[indice][IDX_EVENTO]=='ruta' or str(catalogo[indice][IDX_FUENTE]).strip() in ('Ruido', 'CONTROL'):
             indice=indice+1
             continue
+        ev_procesados += 1
+        if etapa_callback is not None:
+            etapa_callback(
+                2, 4,
+                "Etapa 2/4: Generando hojas de señales y acelerogramas...",
+                min(ev_procesados, total_ev_imp), total_ev_imp,
+                f"Sismo {ev_procesados}/{total_ev_imp}: {catalogo[indice][IDX_EVENTO]}",
+            )
         print("Graficando:  ",catalogo[indice][IDX_EVENTO])
         lienzo.drawString(50,850,'EVENTO: '+catalogo[indice][IDX_EVENTO])
         evento_catalogo=catalogo[indice]  #Variable que tiene la información principal del evento a imprimir, no importa la fuente ni si es reportado o no.
@@ -214,10 +233,29 @@ def imprimir_catalogo(catalogo,arbol,lienzo,directorio,estaciones_informe,tipo_c
         #### ACELEROGRAMAS
         ####################################################################
         eventos_a_graficar=marcar_impresiones(evento,estaciones_informe,tipo_canal,mapa_)
+        datos_est_cat = parametros_estaciones()
+        cods_est_cat = datos_est_cat.get('CODIGO', [])
+        dir_ev_cat = directorios.get('Directorio_eventos', '')
+        dir_acel_cat = directorios.get('Directorio_acelerogramas', '')
+        try:
+            f_ev_cat = obtencion_hora(catalogo[indice_evento][IDX_EVENTO])
+            suf4_cat = f_ev_cat.strftime('_%Y%m%d_%H%M%S.mseed')
+            suf2_cat = f_ev_cat.strftime('_%y%m%d_%H%M%S.mseed')
+        except Exception:
+            suf4_cat = directorios.get('sufijo_mseed', '')
+            suf2_cat = ''
         for i in range(0,len(eventos_a_graficar)):
             catalogo_=convertir_lista(catalogo[indice_evento])
             if trCanal[i] and len(trCanal[i]) > 0 and tipo_canal[i]=='ACELEROGRAFICO' and eventos_a_graficar[i]:
-                lienzo,maximos=impresion_reporte_acelerograma(lienzo,trCanal[i],i,catalogo_,1)#lienzo,maximos
+                ruta_ms_cat = None
+                if i < len(cods_est_cat) and dir_ev_cat:
+                    p4_c = os.path.join(dir_ev_cat, cods_est_cat[i] + suf4_cat)
+                    p2_c = os.path.join(dir_ev_cat, cods_est_cat[i] + suf2_cat) if suf2_cat else ''
+                    ruta_ms_cat = p4_c if os.path.isfile(p4_c) else (p2_c if (p2_c and os.path.isfile(p2_c)) else None)
+                lienzo,maximos=impresion_reporte_acelerograma(
+                    lienzo, trCanal[i], i, catalogo_, 1,
+                    ruta_mseed=ruta_ms_cat, dir_acelerogramas=dir_acel_cat
+                )
                 if maximos!=[]:
                     xxx=[catalogo[indice_evento][IDX_EVENTO]]
                     xxx.append(maximos)
@@ -633,7 +671,8 @@ def reporte_resumen_modos(
     bandera_relleno: bool,
     horario: str = "",
     poligono_enjambre=None,
-    sismo_principal=None
+    sismo_principal=None,
+    etapa_callback=None
 ):
 
     # Mètodo que genera el reporte de resumen en pdf, pudiendo ser de un día o un período entero sin restricción del tiempo
@@ -735,6 +774,8 @@ def reporte_resumen_modos(
             vector.append([lat, lon, prf, mag, red, ruta])
 
     # 5) CREAR LIENZO + PORTADA
+    if etapa_callback is not None:
+        etapa_callback(2, 4, "Etapa 2/4: Generando portada cartográfica y tablas...", 0, 1, os.path.basename(archivo_pdf))
     lienzo = canvas.Canvas(archivo_pdf, pagesize=A4)
     titulo_portada = "SISMICIDAD REGIONAL REGISTRADA"
 
@@ -833,7 +874,8 @@ def reporte_resumen_modos(
                 catalogo_para_detalle, arbol, lienzo, directorio,
                 estaciones_info, parametros_estaciones()['SENSOR'],
                 mapa_detalle, arbol.getroot(), tipo_mapa,
-                banderas=banderas
+                banderas=banderas,
+                etapa_callback=etapa_callback
             )
         else:
             maximos_reporte = []
@@ -855,11 +897,14 @@ def reporte_resumen_modos(
                 catalogo_dia, arbol, lienzo, directorio,
                 estaciones_info, parametros_estaciones()['SENSOR'],
                 mapa_, arbol.getroot(), tipo_mapa,
-                banderas=banderas
+                banderas=banderas,
+                etapa_callback=etapa_callback
             )
         else:
             maximos_reporte = []
 
+    if etapa_callback is not None:
+        etapa_callback(2, 4, "Etapa 2/4: Compilando y guardando archivo PDF...", 1, 1, os.path.basename(archivo_pdf))
     lienzo.save()
     return maximos_reporte
 
@@ -1313,6 +1358,7 @@ def imprimir_reporte_especial_estaciones(
     progreso_callback=None,
     umbral_pga_min: float = 0.0,
     eventos: list = None,
+    etapa_callback=None,
 ) -> dict:
     """
     Genera un informe completo en PDF (ReportLab) enfocado en las estaciones seleccionadas
@@ -1437,8 +1483,21 @@ def imprimir_reporte_especial_estaciones(
                 'fila_csv': ev_row
             })
 
-    # Fuente B: Catálogo hipocentral (para sismos no presentes en eventos o si eventos es None)
-    for grupo in grupos_eventos:
+    # Fuente B: Catálogo hipocentral (con caché por archivo CSV diario para máxima velocidad)
+    cache_csv_diario = {}
+    total_grupos = len(grupos_eventos)
+    if etapa_callback and total_grupos > 0:
+        etapa_callback(1, 4, "Etapa 1/4: Cruzando catálogo con matrices diarias...", 0, total_grupos, "")
+
+    for idx_g, grupo in enumerate(grupos_eventos):
+        if etapa_callback and (idx_g % 50 == 0 or idx_g + 1 == total_grupos):
+            etapa_callback(
+                1, 4,
+                "Etapa 1/4: Cruzando catálogo con matrices diarias...",
+                idx_g + 1, total_grupos,
+                str(grupo[0][IDX_EVENTO])
+            )
+
         sis_id = grupo[0][IDX_EVENTO]
         sis_norm = _normalizar_base_sis(sis_id)
         if sis_norm in vistos_sis:
@@ -1469,22 +1528,31 @@ def imprimir_reporte_especial_estaciones(
         if not ruta_csv:
             continue
 
-        evento_csv_fila = None
-        try:
-            with open(ruta_csv, newline='', encoding='latin-1', errors='replace') as f:
-                lector = csv.reader(f, delimiter=';')
-                for row in lector:
-                    if len(row) > 2:
-                        id_fila = str(row[1]).strip()
-                        if not id_fila:
-                            continue
-                        id_fila_norm = _normalizar_base_sis(id_fila)
-                        if id_fila == sis_id or id_fila_norm == sis_norm or id_fila_norm[2:] == sis_norm[2:]:
-                            evento_csv_fila = row
-                            break
-        except Exception:
-            continue
+        if ruta_csv not in cache_csv_diario:
+            indice_dia = {}
+            try:
+                with open(ruta_csv, newline='', encoding='latin-1', errors='replace') as f:
+                    lector = csv.reader(f, delimiter=';')
+                    for row in lector:
+                        if len(row) > 2:
+                            id_fila = str(row[1]).strip()
+                            if not id_fila:
+                                continue
+                            id_fila_norm = _normalizar_base_sis(id_fila)
+                            indice_dia[id_fila] = row
+                            indice_dia[id_fila_norm] = row
+                            if len(id_fila_norm) >= 12:
+                                indice_dia[id_fila_norm[2:]] = row
+            except Exception:
+                pass
+            cache_csv_diario[ruta_csv] = indice_dia
 
+        indice_dia = cache_csv_diario[ruta_csv]
+        evento_csv_fila = (
+            indice_dia.get(sis_id)
+            or indice_dia.get(sis_norm)
+            or (indice_dia.get(sis_norm[2:]) if len(sis_norm) >= 12 else None)
+        )
         if not evento_csv_fila:
             continue
 
@@ -1499,14 +1567,68 @@ def imprimir_reporte_especial_estaciones(
         })
 
     # 3. Filtrar candidatos por aporte instrumental de estaciones seleccionadas y aceleración mínima
+    from obspy import read as obspy_read
     eventos_calificados = []
+    total_cand = len(candidatos)
+    if etapa_callback and total_cand > 0:
+        etapa_callback(2, 4, "Etapa 2/4: Evaluando aporte y aceleración máxima (PGA)...", 0, total_cand, "")
 
-    for cand in candidatos:
+    def _resolver_ruta_mseed_estacion(directorios_ev, sis_str, idx_ch):
+        dir_ev = directorios_ev.get('Directorio_eventos', '')
+        if not dir_ev or idx_ch >= len(codigos_est) or not os.path.isdir(dir_ev):
+            return None
+        try:
+            fecha_ev = obtencion_hora(sis_str)
+            suf_4d = fecha_ev.strftime('_%Y%m%d_%H%M%S.mseed')
+            suf_2d = fecha_ev.strftime('_%y%m%d_%H%M%S.mseed')
+        except Exception:
+            suf_4d = directorios_ev.get('sufijo_mseed', '')
+            suf_2d = ''
+        cod = codigos_est[idx_ch]
+        p4 = os.path.join(dir_ev, cod + suf_4d)
+        if os.path.isfile(p4):
+            return p4
+        if suf_2d:
+            p2 = os.path.join(dir_ev, cod + suf_2d)
+            if os.path.isfile(p2):
+                return p2
+        return None
+
+    def _leer_mseed_selectivo(directorios_ev, sis_str, indices_leer):
+        tr_parcial = [[] for _ in range(max(n_estaciones, NUMERO_ESTACIONES))]
+        for idx_ch in indices_leer:
+            ruta_ms = _resolver_ruta_mseed_estacion(directorios_ev, sis_str, idx_ch)
+            if ruta_ms:
+                try:
+                    tr_parcial[idx_ch] = obspy_read(ruta_ms)
+                except Exception:
+                    pass
+        return tr_parcial
+
+    for idx_c, cand in enumerate(candidatos):
+        if etapa_callback and (idx_c % 25 == 0 or idx_c + 1 == total_cand):
+            etapa_callback(
+                2, 4,
+                "Etapa 2/4: Evaluando aporte y aceleración máxima (PGA)...",
+                idx_c + 1, total_cand,
+                cand['sis_id']
+            )
+
         sis_id = cand['sis_id']
         grupo = cand['grupo']
         evento_csv_fila = cand['fila_csv']
 
-        # Identificar estaciones seleccionadas que aportaron ('1' en posición 5)
+        # Resolver directorios completos del evento (necesario para verificar .mseed de acelerógrafos en FF/FC)
+        ruta_sismo = os.path.join(directorio_trabajo, sis_id)
+        directorios = obtener_directorios(ruta_sismo)
+        if not os.path.exists(directorios.get('Directorio_base', '')):
+            ruta_sismo_dia = os.path.join(directorio_trabajo, 'DIA', sis_id)
+            directorios_dia = obtener_directorios(ruta_sismo_dia)
+            if os.path.exists(directorios_dia.get('Directorio_base', '')):
+                directorios = directorios_dia
+                ruta_sismo = ruta_sismo_dia
+
+        # Identificar estaciones seleccionadas que aportaron ('1' en posición 5 del token EEEECBFFIISS)
         candidatas_aporte = []
         for idx in indices_set:
             if idx + 3 < len(evento_csv_fila):
@@ -1517,54 +1639,31 @@ def imprimir_reporte_especial_estaciones(
         if not candidatas_aporte:
             continue
 
-        # Resolver directorios completos del evento
-        ruta_sismo = os.path.join(directorio_trabajo, sis_id)
-        directorios = obtener_directorios(ruta_sismo)
-        if not os.path.exists(directorios.get('Directorio_base', '')):
-            ruta_sismo_dia = os.path.join(directorio_trabajo, 'DIA', sis_id)
-            directorios_dia = obtener_directorios(ruta_sismo_dia)
-            if os.path.exists(directorios_dia.get('Directorio_base', '')):
-                directorios = directorios_dia
-                ruta_sismo = ruta_sismo_dia
-
-        # Si se especificó umbral_pga_min > 0, evaluar aceleración real de las estaciones acelerográficas
+        # Si se especificó umbral_pga_min > 0, evaluar PGA usando caché persistente en acelerogramas/señales/
         estaciones_con_registro = []
         trCanal_precarga = None
 
-        hay_acel_candidata = any(
-            idx < len(tipo_canal) and tipo_canal[idx] == 'ACELEROGRAFICO'
-            for idx in candidatas_aporte
-        )
-
-        if hay_acel_candidata and umbral_pga_min > 0.0:
-            try:
-                trCanal_precarga = leer_mseed(ruta_sismo, 1)
-                if not any(trCanal_precarga):
-                    trCanal_precarga = leer_mseed(os.path.join(directorio_trabajo, 'DIA', sis_id), 1)
-            except Exception:
-                trCanal_precarga = None
-
         if umbral_pga_min > 0.0:
             acel_que_superan = []
+            dir_acel_ev = directorios.get('Directorio_acelerogramas', '')
             for idx in candidatas_aporte:
                 es_acel = (idx < len(tipo_canal) and tipo_canal[idx] == 'ACELEROGRAFICO')
                 if es_acel:
                     pga_est = 0.0
-                    if trCanal_precarga and idx < len(trCanal_precarga) and trCanal_precarga[idx]:
+                    ruta_ms = _resolver_ruta_mseed_estacion(directorios, sis_id, idx)
+                    if ruta_ms:
                         try:
                             factor = float(datos_est['FACTOR_MUL'][idx])
                         except Exception:
                             factor = 1.0
-                        for ch in trCanal_precarga[idx][:3]:
-                            try:
-                                sen = correccion(ch, factor)
-                                acel = sen[0]
-                                if len(acel) > 0:
-                                    max_c = max(abs(float(np.max(acel))), abs(float(np.min(acel))))
-                                    if max_c > pga_est:
-                                        pga_est = max_c
-                            except Exception:
-                                pass
+                        info_cache = obtener_o_calcular_cache_acelerograma(
+                            ruta_ms,
+                            factor,
+                            dir_acelerogramas=dir_acel_ev,
+                            solo_maximos=True,
+                        )
+                        if info_cache is not None:
+                            pga_est = float(info_cache.get('pga_max', 0.0))
                     if pga_est >= umbral_pga_min:
                         acel_que_superan.append(idx)
 
@@ -1833,7 +1932,16 @@ def imprimir_reporte_especial_estaciones(
     # 6. Renderizar cada evento con ficha de sismo, señales limpias y acelerogramas
     total_ev = len(eventos_calificados)
     acelerogramas_recolectados = []
+    if etapa_callback:
+        etapa_callback(3, 4, "Etapa 3/4: Generando páginas PDF (señales y acelerogramas)...", 0, total_ev, "")
     for idx_ev, ev in enumerate(eventos_calificados):
+        if etapa_callback:
+            etapa_callback(
+                3, 4,
+                "Etapa 3/4: Generando páginas PDF (señales y acelerogramas)...",
+                idx_ev + 1, total_ev,
+                ev['sis_id']
+            )
         if progreso_callback:
             progreso_callback(idx_ev + 1, total_ev, ev['sis_id'])
 
@@ -1849,16 +1957,16 @@ def imprimir_reporte_especial_estaciones(
             evento_generar.append([])
         evento_generar.extend(grupo)
 
-        # Leer trazas mseed del evento (o reutilizar precarga si ya se leyó)
+        # Leer trazas mseed del evento (reutilizando precarga o leyendo solo las estaciones seleccionadas)
         trCanal = ev.get('trCanal')
         if not trCanal or not any(trCanal):
-            ruta_sismo_mseed = ev.get('ruta_sismo') or os.path.join(directorio_trabajo, ev['sis_id'])
-            try:
-                trCanal = leer_mseed(ruta_sismo_mseed, 1)
-                if not any(trCanal):
-                    trCanal = leer_mseed(os.path.join(directorio_trabajo, 'DIA', ev['sis_id']), 1)
-            except Exception:
-                trCanal = [[] for _ in range(max(n_estaciones, NUMERO_ESTACIONES))]
+            trCanal = _leer_mseed_selectivo(directorios, ev['sis_id'], estaciones_con_reg)
+            if not any(trCanal):
+                ruta_sismo_mseed = ev.get('ruta_sismo') or os.path.join(directorio_trabajo, ev['sis_id'])
+                try:
+                    trCanal = leer_mseed(ruta_sismo_mseed, 1)
+                except Exception:
+                    trCanal = [[] for _ in range(max(n_estaciones, NUMERO_ESTACIONES))]
 
         # Vector de máscara: solo 1 en las estaciones seleccionadas que fueron APORTANTES ('1') y tienen traza
         eventos_a_graficar = [0] * max(n_estaciones, NUMERO_ESTACIONES)
@@ -1924,19 +2032,25 @@ def imprimir_reporte_especial_estaciones(
             )
             lienzo.showPage()
 
-        # Imprimir acelerogramas para las estaciones acelerográficas seleccionadas
+        # Imprimir acelerogramas para las estaciones acelerográficas seleccionadas (usando caché acelerogramas/señales/)
+        dir_acel_ev = directorios.get('Directorio_acelerogramas', '')
         for idx_acel in estaciones_acelerograficas:
             catalogo_fila = convertir_lista(evento_catalogo)
+            ruta_ms_acel = _resolver_ruta_mseed_estacion(directorios, ev['sis_id'], idx_acel)
             lienzo, maximos = impresion_reporte_acelerograma(
                 lienzo,
                 trCanal[idx_acel],
                 idx_acel,
                 catalogo_fila,
-                1
+                1,
+                ruta_mseed=ruta_ms_acel,
+                dir_acelerogramas=dir_acel_ev,
             )
             if maximos and len(maximos) > 1:
                 acelerogramas_recolectados.append([evento_catalogo[IDX_EVENTO], maximos])
 
+    if etapa_callback:
+        etapa_callback(4, 4, "Etapa 4/4: Guardando archivo PDF y CSV de aceleraciones...", 1, 1, os.path.basename(archivo_pdf))
     lienzo.save()
 
     # Generación complementaria del archivo CSV de aceleraciones máximas (_aceleraciones.csv)

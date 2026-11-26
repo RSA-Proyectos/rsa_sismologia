@@ -2155,16 +2155,26 @@ class estaciones_(QWidget):
             self.ck_box_hab_canal[fila].setGeometry(208, fila * 25 + 45, 20, 20)
             self.ck_box_hab_canal[fila].setChecked(dato[5:6] == '1')
 
-            # Canal físico (1,2,3)
+            # Canal físico (1,2,3) — tolerante si el token en 000000.csv es '-' o incompleto
             self.spbox_canal[fila] = QSpinBox(self)
             self.spbox_canal[fila].setGeometry(245, fila * 25 + 45, 40, 20)
             self.spbox_canal[fila].setRange(1, 3)
-            self.spbox_canal[fila].setValue(int(dato[4:5]))
+            dato_str = str(dato).strip() if dato is not None else ""
+            if len(dato_str) >= 5 and dato_str[4:5].isdigit():
+                canal_val = int(dato_str[4:5])
+            else:
+                comp_def = str(self.parametros['COMPONENTE'][canal_real]).strip()
+                canal_val = int(comp_def) if comp_def.isdigit() else 1
+            self.spbox_canal[fila].setValue(max(1, min(3, canal_val)))
 
-            # Filtro
-            orden = int(self.filtros[fila][0:2])
-            finf = int(self.filtros[fila][2:4])
-            fsup = int(self.filtros[fila][4:6])
+            # Filtro — tolerante si self.filtros[fila] viene vacío o sin 6 dígitos
+            f_str = str(self.filtros[fila]).strip() if fila < len(self.filtros) else ""
+            if len(f_str) >= 6 and f_str[0:6].isdigit():
+                orden = int(f_str[0:2])
+                finf = int(f_str[2:4])
+                fsup = int(f_str[4:6])
+            else:
+                orden, finf, fsup = 0, 1, 10
 
             self.ck_box_filtro[fila] = QCheckBox(self)
             self.ck_box_filtro[fila].setGeometry(312, fila * 25 + 45, 20, 20)

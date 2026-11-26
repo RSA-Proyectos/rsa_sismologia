@@ -89,8 +89,12 @@ Cuando `extras_tecnicos` es `True` (M1, M2, M3), `derivar_banderas_desde_modo` h
 
 ### 2.4. Reporte Especial por Estaciones (`imprimir_reporte_especial_estaciones`)
 * **Propósito**: Emite informes en ReportLab enfocados exclusivamente en estaciones seleccionadas mediante checkboxes en la Sección 3 de `reporte_acumulado.py`.
-* **Criterio de Inclusión**: Filtra los sismos del catálogo según `tipo_evento_filtro` (`TODOS`, `SISMO`, `FF`, etc.) y verifica que al menos una de las estaciones marcadas posea traza registrada (`evento[idx + 3] != '-'`).
-* **Limpio para Entrega**: Fija `mostrar_lineas_fases=False`, `mostrar_zoom_seniales=False`, `mostrar_cabecera_interna_rms=False`, `mostrar_cobertura_red=False` y `mostrar_intentos_proc=False`. Imprime las formas de onda sismológicas limpias (hasta 5 por lámina) y genera las 3 láminas apaisadas de acelerogramas si la estación es acelerográfica.
+* **Reglas estrictas de inclusión (no mezclar)**:
+  1. **Aporte instrumental obligatorio (`token[5] == '1'`)**: tanto en `imprimir_catalogo` como en `imprimir_reporte_especial_estaciones`, una estación (sísmica o acelerográfica) **solo se incluye y grafica si figura como APORTANTE (`token[5] == '1'`)** en `AAAAMMDD000000.csv`.
+  2. **Eventos `FF` / `FC` con información de otras redes**: en el catálogo del informe (`reporte_acumulado.py:_cumple_filtro_red`), los eventos clasificados como `FF` o `FC` que cuentan con solución de otras redes (`IGEPN`/`USGS`) siempre se conservan como parte del informe.
+  3. **Filtro PGA opcional (`umbral_pga_min`)**: si es `> 0`, consulta los máximos desde el caché persistente `acelerogramas/señales/*.npz` (`solo_maximos=True`).
+* **Portada y Rendimiento**: usa el mismo algoritmo de portada de `imprimir_reporte_general` (`derivar_banderas_desde_modo(MODO_OFICIAL_DETALLADO)`), caché de CSV diarios por fecha (`cache_csv_diario`), lectura selectiva de `.mseed` (`_leer_mseed_selectivo`) y `etapa_callback` para las 4 etapas de progreso.
+* **Limpio para Entrega**: Fija `mostrar_lineas_fases=False`, `mostrar_zoom_seniales=False`, `mostrar_cabecera_interna_rms=False`, `mostrar_cobertura_red=False` y `mostrar_intentos_proc=False`. Imprime las formas de onda sismológicas limpias (hasta 5 por lámina) y genera las 3 láminas apaisadas de acelerogramas (incluyendo Espectro de Respuesta al 5%) si la estación es acelerográfica aportante.
 
 ---
 

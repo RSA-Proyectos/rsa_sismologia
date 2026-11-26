@@ -953,7 +953,82 @@ class VentanaPrincipal(QMainWindow):
             painter.end()
 
 
+def _configurar_log_diagnostico():
+    """
+    Activa el registro inmediato en `procesamiento/diagnostico_rsa.log` de:
+      - Toda salida estándar y de error (stdout / stderr) con flush inmediato.
+      - Excepciones Python no capturadas en slots de PyQt5 (sys.excepthook).
+      - Fallos nativos C/C++ (faulthandler).
+    """
+    import faulthandler
+    import traceback
+
+    ruta_log = os.path.abspath(os.path.join(ruta_proyecto, 'diagnostico_rsa.log'))
+    archivo_log = open(ruta_log, 'a', encoding='utf-8', buffering=1)
+    archivo_log.write(f"\n{'=' * 75}\nINICIO SESIÓN RSA: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n{'=' * 75}\n")
+    archivo_log.flush()
+
+    try:
+        faulthandler.enable(file=archivo_log, all_threads=True)
+    except Exception:
+        pass
+
+    class _DuplicadorFlujo:
+        def __init__(self, original, destino):
+            self._orig = original
+            self._dest = destino
+
+        def write(self, texto):
+            if self._orig is not None:
+                try:
+                    self._orig.write(texto)
+                except Exception:
+                    pass
+            try:
+                self._dest.write(texto)
+                self._dest.flush()
+            except Exception:
+                pass
+
+        def flush(self):
+            if self._orig is not None:
+                try:
+                    self._orig.flush()
+                except Exception:
+                    pass
+            try:
+                self._dest.flush()
+            except Exception:
+                pass
+
+    sys.stdout = _DuplicadorFlujo(sys.stdout, archivo_log)
+    sys.stderr = _DuplicadorFlujo(sys.stderr, archivo_log)
+
+    def _excepthook_rsa(exc_type, exc_value, exc_tb):
+        traza = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        encabezado = f"\n[EXCEPCIÓN NO CAPTURADA {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]\n"
+        try:
+            archivo_log.write(encabezado + traza + "\n")
+            archivo_log.flush()
+        except Exception:
+            pass
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        try:
+            QMessageBox.critical(
+                None,
+                "Error Detectado (Registrado en Log)",
+                f"Ocurrió un error inesperado:\n\n{exc_type.__name__}: {exc_value}\n\n"
+                f"El detalle completo quedó guardado en:\n{ruta_log}"
+            )
+        except Exception:
+            pass
+
+    sys.excepthook = _excepthook_rsa
+    return archivo_log
+
+
 if __name__ == '__main__':
+    _log_rsa_activo = _configurar_log_diagnostico()
     app = QApplication(sys.argv)
     ventana = VentanaPrincipal()
     ventana.showMaximized()

@@ -53,4 +53,7 @@ dist/
 # Accesos directos y lanzadores locales por computadora
 *.lnk
 *.bat
+!procesamiento/instalar_entorno.bat
+!procesamiento/crear_accesos_escritorio.bat
+!procesamiento/Programa principal.bat
 desktop.ini

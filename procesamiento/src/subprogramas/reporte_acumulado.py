@@ -64,7 +64,7 @@ from obspy import read
 import calendar
 import os
 import numpy as np
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 IDX_INDICE,IDX_ANIO,IDX_MES,IDX_DIA,IDX_HORA,IDX_MINUTO,IDX_SEGUNDO,\
 IDX_LATITUD,IDX_LONGITUD,IDX_PROFUNDIDAD,IDX_RMS,IDX_E_X,IDX_E_Y,IDX_E_0,\
 IDX_E_Z,IDX_MAGNITUD,IDX_UNIDAD_MAG,\
@@ -237,6 +237,78 @@ class VentanaEstaciones(QtWidgets.QDialog):
         return 0.0
 
 
+class DialogoProgresoReporte(QtWidgets.QDialog):
+    """
+    Ventana de progreso por etapas para la generación de reportes de período
+    (carga de catálogo, filtrado, evaluación PGA y generación de PDF/acelerogramas).
+    Admite pesos opcionales por etapa (`pesos_etapas`) para reflejar el costo real
+    de cada fase en la barra de progreso global.
+    """
+    def __init__(self, titulo="Generando Reporte...", parent=None, pesos_etapas=None):
+        super(DialogoProgresoReporte, self).__init__(parent)
+        self.setWindowTitle(titulo)
+        self.setModal(True)
+        self.setFixedSize(500, 185)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self._t_inicio = datetime.now()
+        self._pesos_etapas = list(pesos_etapas) if pesos_etapas else None
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(16, 14, 16, 14)
+
+        self.lbl_etapa = QtWidgets.QLabel("Iniciando...")
+        self.lbl_etapa.setStyleSheet("font-weight: bold; font-size: 9.5pt; color: #1565C0;")
+        layout.addWidget(self.lbl_etapa)
+
+        self.barra_general = QtWidgets.QProgressBar()
+        self.barra_general.setRange(0, 100)
+        self.barra_general.setValue(0)
+        self.barra_general.setFormat("Progreso general: %p%")
+        layout.addWidget(self.barra_general)
+
+        self.lbl_detalle = QtWidgets.QLabel("Preparando...")
+        self.lbl_detalle.setStyleSheet("font-size: 8.5pt; color: #333;")
+        layout.addWidget(self.lbl_detalle)
+
+        self.barra_etapa = QtWidgets.QProgressBar()
+        self.barra_etapa.setRange(0, 1)
+        self.barra_etapa.setValue(0)
+        self.barra_etapa.setFormat("Etapa actual: %v / %m")
+        layout.addWidget(self.barra_etapa)
+
+        self.lbl_tiempo = QtWidgets.QLabel("Tiempo transcurrido: 00:00")
+        self.lbl_tiempo.setStyleSheet("font-size: 8pt; color: #666;")
+        layout.addWidget(self.lbl_tiempo)
+
+    def actualizar(self, num_etapa: int, total_etapas: int, titulo_etapa: str, actual: int = 0, total: int = 1, detalle: str = ""):
+        total_et = max(1, int(total_etapas))
+        num_et = max(1, min(int(num_etapa), total_et))
+        tot_paso = max(1, int(total))
+        act_paso = max(0, min(int(actual), tot_paso))
+
+        self.lbl_etapa.setText(titulo_etapa)
+        self.barra_etapa.setRange(0, tot_paso)
+        self.barra_etapa.setValue(act_paso)
+        self.barra_etapa.setFormat(f"Etapa {num_et}/{total_et}: %v / %m (%p%)")
+
+        frac_etapa = act_paso / float(tot_paso)
+        if self._pesos_etapas and len(self._pesos_etapas) == total_et:
+            suma_total = sum(self._pesos_etapas) or 1.0
+            acum_prev = sum(self._pesos_etapas[:num_et - 1])
+            peso_act = self._pesos_etapas[num_et - 1]
+            pct_global = int(((acum_prev + peso_act * frac_etapa) / suma_total) * 100.0)
+        else:
+            pct_global = int(((num_et - 1) + frac_etapa) / float(total_et) * 100.0)
+        self.barra_general.setValue(max(0, min(100, pct_global)))
+
+        self.lbl_detalle.setText(detalle if detalle else "Procesando...")
+        seg_trans = int((datetime.now() - self._t_inicio).total_seconds())
+        mins, segs = divmod(seg_trans, 60)
+        self.lbl_tiempo.setText(f"Tiempo transcurrido: {mins:02d}:{segs:02d}")
+        QtWidgets.QApplication.processEvents()
+
+
 class Reporte_periodo(QMainWindow):
     cerrado = pyqtSignal()  # señal que se emitire al cerrar
     def __init__(self, archivo, directorio_trabajo, responsable, horario, parent=None):#Constructor de la clase
@@ -404,13 +476,15 @@ class Reporte_periodo(QMainWindow):
         self.cmbx_mapa.currentIndexChanged.connect(self._al_cambiar_controles_filtro)
         self.cmbx_magnitud.currentIndexChanged.connect(self._al_cambiar_controles_filtro)
         self.cmbx_profundidad.currentIndexChanged.connect(self._al_cambiar_controles_filtro)
-        self.cmbx_n_estaciones.currentIndexChanged.connect(self._al_cambiar_controles_filtro)
+        # Mecanismos focales es independiente de los reportes convencionales:
+        if hasattr(self, 'btn_exportar_mecanismos') and self.btn_exportar_mecanismos is not None:
+            self.btn_exportar_mecanismos.clicked.connect(self.exportar_candidatos_mecanismos_focales)
         if hasattr(self, 'cmbx_filtro_red') and self.cmbx_filtro_red is not None:
             self.cmbx_filtro_red.currentIndexChanged.connect(self._al_cambiar_controles_filtro)
 
         for nombre_ctrl in (
             'ck_box_filtro', 'ck_prof_sup', 'ck_prof_med', 'ck_prof_pro',
-            'ck_nest_catalogo', 'ck_box_reporte', 'ck_box_firma',
+            'ck_box_reporte', 'ck_box_firma',
             'ck_box_relleno', 'ck_box_concentricos'
         ):
             ctrl = getattr(self, nombre_ctrl, None)
@@ -638,9 +712,30 @@ class Reporte_periodo(QMainWindow):
         self.raiz = self.arbol.getroot()
 
     def Guardar_(self):
-        if hasattr(self, 'catalogo_respaldo') and len(getattr(self, 'catalogo_respaldo', [])) > 1:
-            self.Cargar_catalogo()
-        self.filtros()
+        dlg_prog = DialogoProgresoReporte(
+            "Generando Reporte de Período",
+            parent=self,
+            pesos_etapas=(0.05, 0.85, 0.05, 0.05),
+        )
+        dlg_prog.show()
+        guardado_ok = False
+        try:
+            dlg_prog.actualizar(1, 4, "Etapa 1/4: Aplicando filtros y preparando catálogos...", 0, 2, "Restaurando y filtrando eventos...")
+            if hasattr(self, 'catalogo_respaldo') and len(getattr(self, 'catalogo_respaldo', [])) > 1:
+                self.Cargar_catalogo()
+            self.filtros()
+            dlg_prog.actualizar(1, 4, "Etapa 1/4: Aplicando filtros y preparando catálogos...", 2, 2, f"Eventos filtrados: {max(0, len(self.catalogo) - 1)}")
+            self._guardar_cuerpo_reporte(dlg_prog)
+            guardado_ok = True
+        finally:
+            dlg_prog.close()
+
+        if guardado_ok:
+            QMessageBox.information(self, self.tr("Aviso"), self.tr("¡Archivo Guardado"))
+            self.inicializar_variables()
+            self.Btn_guardar.setEnabled(False)
+
+    def _guardar_cuerpo_reporte(self, dlg_prog=None):
         if self.periodo_reporte[0:9]=='Período: ':
             #Por periodo
             nombre_=self.periodo_reporte[9:].replace('/', '_').strip()
@@ -780,6 +875,12 @@ class Reporte_periodo(QMainWindow):
                     indice_tipo_mapa = idx_alt
                     break
 
+        cb_pdf = (
+            (lambda n_et, t_et, tit, act, tot, det: dlg_prog.actualizar(n_et, t_et, tit, act, tot, det))
+            if dlg_prog is not None else None
+        )
+        if dlg_prog:
+            dlg_prog.actualizar(2, 4, "Etapa 2/4: Iniciando generación de reporte PDF...", 0, 1, os.path.basename(self.archivo_1_pdf))
         acelerogramas=reporte_resumen_modos(self.archivo_1_pdf,
                                       self.periodo_reporte,
                                       self.fecha_ini,
@@ -795,7 +896,10 @@ class Reporte_periodo(QMainWindow):
                                       self.reporte_total,
                                       self.eventos,
                                       bandera_firma,
-                                      bandera_relleno)
+                                      bandera_relleno,
+                                      etapa_callback=cb_pdf)
+        if dlg_prog:
+            dlg_prog.actualizar(3, 4, "Etapa 3/4: Exportando CSVs de aceleraciones, resumen y XML...", 1, 2, os.path.basename(self.archivo_resumen_acelerografos))
         registro1=[]
         registro2=[]
         xxx=['Evento','Estación','Canal 0'  ,''        ,''         ,'Canal 1'  ,''        ,''         ,'Canal 2'  ,''         ,'']
@@ -908,7 +1012,11 @@ class Reporte_periodo(QMainWindow):
 
         # Generar automáticamente las capas Shapefile GIS (.shp, .shx, .dbf, .prj, .cpg, .metadata.json, .qmd)
         # junto al archivo <nombre>_cat.csv del reporte
+        if dlg_prog:
+            dlg_prog.actualizar(4, 4, "Etapa 4/4: Generando capas Shapefile GIS...", 0, 1, os.path.basename(self.archivo_cat_men))
         detalle_shape = self._generar_shapes_reporte(self.archivo_cat_men)
+        if dlg_prog:
+            dlg_prog.actualizar(4, 4, "Etapa 4/4: Informe completado.", 1, 1, os.path.basename(self.archivo_1_pdf))
 
         self._registrar_bitacora(
             f"✓ Informe guardado exitosamente en:\n  {directorio_}\n"
@@ -916,9 +1024,6 @@ class Reporte_periodo(QMainWindow):
             f"  • Catálogo filtrado: {max(0, len(self.catalogo) - 1)} sismos | XML: {os.path.basename(self.archivo_xml_escritura)}"
             + (f"\n  • {detalle_shape}" if detalle_shape else "")
         )
-        QMessageBox.information(self,self.tr("Aviso"),self.tr("¡Archivo Guardado"))  
-        self.inicializar_variables()
-        self.Btn_guardar.setEnabled(False)
 
     def _generar_shapes_reporte(self, ruta_cat_csv: str) -> str:
         """
@@ -987,10 +1092,12 @@ class Reporte_periodo(QMainWindow):
         """
         filtro_activo = bool(self.ck_box_filtro.isChecked()) if hasattr(self, 'ck_box_filtro') else True
 
-        for nombre_grp in ('grupo_filtro_prof', 'grupo_filtro_mag', 'grupo_filtro_nest'):
+        for nombre_grp in ('grupo_filtro_prof', 'grupo_filtro_mag'):
             grp = getattr(self, nombre_grp, None)
             if grp is not None:
                 grp.setEnabled(filtro_activo)
+        if hasattr(self, 'grupo_filtro_nest') and self.grupo_filtro_nest is not None:
+            self.grupo_filtro_nest.setEnabled(True)
 
         if filtro_activo:
             por_estratos = getattr(self, 'rb_prof_estratos', None) is not None and self.rb_prof_estratos.isChecked()
@@ -1357,51 +1464,71 @@ class Reporte_periodo(QMainWindow):
 #  0     1   2  3     4          5           6        7  
 # DIA;SISMO;FF;FC;TELESISMO;Evento Local;INDEFINIDO;Ruido
 #Total:;     ;  ;  ;         ;            ;          ;     
-        fecha=fecha_inicio
-        dias_actualizados = 0
-        cascadas_totales = set()
-        while fecha <= fecha_fin:
-            fecha_ = QDate(fecha.year, fecha.month, fecha.day)
-            archivo = os.path.join(self.directorio_trabajo, fecha_.toString('yyyyMMdd000000'))
-            self.directorios = obtener_directorios(archivo)
-            if os.path.exists(self.directorios['Directorio_base']):
-                (
-                    eventos_reporte,
-                    catalogo,
-                    eventos,
-                    vector,
-                    canales_eventos_dia,
-                    root_dia,
-                    responsable_dia,
-                    resumen_dia,
-                ) = cargar_dia(self.directorios)
+        fecha = fecha_inicio
+        total_dias = max(1, (fecha_fin - fecha_inicio).days + 1)
+        dlg_rec = None
+        if total_dias > 3:
+            dlg_rec = DialogoProgresoReporte("Cargando Período Día por Día...", parent=self)
+            dlg_rec.show()
+            dlg_rec.actualizar(1, 1, "Leyendo y consolidando días del período...", 0, total_dias, fecha_inicio.strftime('%Y-%m-%d'))
 
-                # Persistencia en disco día por día (sin generar PDF) y actualización en cascada
-                try:
-                    Guardar_dia(
+        dias_actualizados = 0
+        dia_idx = 0
+        cascadas_totales = set()
+        try:
+            while fecha <= fecha_fin:
+                dia_idx += 1
+                if dlg_rec is not None:
+                    dlg_rec.actualizar(
+                        1, 1,
+                        "Leyendo y consolidando días del período...",
+                        dia_idx, total_dias,
+                        f"Día {dia_idx}/{total_dias}: {fecha.strftime('%d/%m/%Y')}",
+                    )
+                fecha_ = QDate(fecha.year, fecha.month, fecha.day)
+                archivo = os.path.join(self.directorio_trabajo, fecha_.toString('yyyyMMdd000000'))
+                self.directorios = obtener_directorios(archivo)
+                if os.path.exists(self.directorios['Directorio_base']):
+                    (
                         eventos_reporte,
                         catalogo,
                         eventos,
+                        vector,
+                        canales_eventos_dia,
                         root_dia,
                         responsable_dia,
                         resumen_dia,
-                        self.directorios,
-                    )
-                    act_cascada = actualizar_periodos_emitidos_desde_fecha(fecha, self.directorio_trabajo)
-                    if act_cascada:
-                        cascadas_totales.update(act_cascada)
-                    dias_actualizados += 1
-                except Exception as err_dia:
-                    print(f"Aviso actualizando día {fecha}: {err_dia}")
+                    ) = cargar_dia(self.directorios)
 
-                self.eventos = self.eventos + eventos
-                self.catalogo = self.catalogo + catalogo[1:]
-                self.eventos_reporte = self.eventos_reporte + eventos_reporte[1:]
-                self.resumen = self.resumen + lectura_resumen(self.directorios['archivo_resumen'])
-                self.reporte_total = self.reporte_total + lectura_resumen(self.directorios['archivo_responsables'])
-                for child in root_dia:
-                    self.raiz.append(child)
-            fecha = fecha + timedelta(1)  # Suma a fecha actual 1 día
+                    # Persistencia en disco día por día (sin generar PDF) y actualización en cascada
+                    try:
+                        Guardar_dia(
+                            eventos_reporte,
+                            catalogo,
+                            eventos,
+                            root_dia,
+                            responsable_dia,
+                            resumen_dia,
+                            self.directorios,
+                        )
+                        act_cascada = actualizar_periodos_emitidos_desde_fecha(fecha, self.directorio_trabajo)
+                        if act_cascada:
+                            cascadas_totales.update(act_cascada)
+                        dias_actualizados += 1
+                    except Exception as err_dia:
+                        print(f"Aviso actualizando día {fecha}: {err_dia}")
+
+                    self.eventos = self.eventos + eventos
+                    self.catalogo = self.catalogo + catalogo[1:]
+                    self.eventos_reporte = self.eventos_reporte + eventos_reporte[1:]
+                    self.resumen = self.resumen + lectura_resumen(self.directorios['archivo_resumen'])
+                    self.reporte_total = self.reporte_total + lectura_resumen(self.directorios['archivo_responsables'])
+                    for child in root_dia:
+                        self.raiz.append(child)
+                fecha = fecha + timedelta(1)  # Suma a fecha actual 1 día
+        finally:
+            if dlg_rec is not None:
+                dlg_rec.close()
         self.Respaldar_catalogo()
         if dias_actualizados > 0 and cascadas_totales:
             print(f"✓ Cascada de períodos actualizada para {dias_actualizados} días: {', '.join(sorted(cascadas_totales))}")
@@ -1473,11 +1600,68 @@ class Reporte_periodo(QMainWindow):
         except ValueError:
             return True
 
-    def _cumple_filtro_red(self, fila_cat) -> bool:
+    def _construir_set_eventos_ff_fc(self) -> set:
+        """
+        Devuelve el conjunto de claves normalizadas (14 dígitos y 12 dígitos) de eventos
+        clasificados como FF o FC en la matriz diaria (`self.eventos`) o en `self.eventos_reporte`,
+        para garantizar que los eventos FF/FC con información de otras redes (IGEPN/USGS)
+        siempre formen parte del informe.
+        """
+        claves = set()
+        for lista_src in (getattr(self, 'eventos', None), getattr(self, 'eventos_respaldo', None)):
+            if not lista_src:
+                continue
+            for fila in lista_src:
+                if not fila or len(fila) < 3:
+                    continue
+                tipo_f = str(fila[2]).strip().upper()
+                if tipo_f in ('FF', 'FC'):
+                    nom = str(fila[1]).strip()
+                    base = os.path.splitext(nom)[0].replace('_', '')
+                    if base:
+                        claves.add(nom)
+                        claves.add(base)
+                        if len(base) == 12:
+                            claves.add('20' + base)
+                        elif len(base) == 14:
+                            claves.add(base[2:])
+        # También revisar eventos_reporte (_rep.csv: col 1 = Fecha; Hora, col 2 = Evento)
+        for fila_rep in (getattr(self, 'eventos_reporte', None) or []):
+            if not fila_rep or len(fila_rep) < 3:
+                continue
+            tipo_r = str(fila_rep[2]).strip().upper()
+            if tipo_r in ('FF', 'FC'):
+                # Normalizar fecha/hora tipo '2026/11/19; 05:49:07' -> '202611190549'
+                digs = ''.join(ch for ch in str(fila_rep[1]) if ch.isdigit())
+                if len(digs) >= 12:
+                    claves.add(digs[:12])
+        return claves
+
+    def _es_evento_ff_fc_en_catalogo(self, fila_cat, claves_ff_fc: set) -> bool:
+        if not fila_cat or len(fila_cat) <= IDX_EVENTO:
+            return False
+        nom_ev = str(fila_cat[IDX_EVENTO]).strip()
+        if not nom_ev:
+            return False
+        base = os.path.splitext(nom_ev)[0].replace('_', '')
+        if nom_ev in claves_ff_fc or base in claves_ff_fc:
+            return True
+        if len(base) == 12 and ('20' + base) in claves_ff_fc:
+            return True
+        if len(base) == 14 and base[2:] in claves_ff_fc:
+            return True
+        id_ev = str(fila_cat[IDX_INDICE]).strip()
+        if len(id_ev) >= 12 and id_ev[:12] in claves_ff_fc:
+            return True
+        return False
+
+    def _cumple_filtro_red(self, fila_cat, claves_ff_fc=None) -> bool:
         """
         Evalúa si un registro de catálogo cumple con la opción activa en `cmbx_filtro_red`:
           - Índice 0 ('Solo Red Sísmica (RSA)' - opción por defecto y habitual en reportes):
-              Acepta únicamente sismos de la red RSA (Fuente == 'RSA' o Id con sufijo '00').
+              Acepta sismos de la red RSA (Fuente == 'RSA' o Id con sufijo '00') Y TAMBIÉN
+              eventos clasificados como FF o FC que tienen información de otras redes (IGEPN/USGS),
+              ya que forman parte del informe oficial.
           - Índice 1 ('Todas las redes'):
               Acepta tanto sismos de la RSA como de otras redes (IGEPN, USGS, etc.).
           - Índice 2 ('Solo Otras redes'):
@@ -1489,14 +1673,16 @@ class Reporte_periodo(QMainWindow):
         id_ev = str(fila_cat[IDX_INDICE]).strip()
         es_rsa = (fuente == 'RSA' or (len(id_ev) >= 2 and id_ev.endswith('00')))
 
-        # Para eventos clasificados como FF, FC o TELESISMO (reportados comúnmente por otras redes
-        # como IGEPN/USGS o sin solución local RSA), no restringir por filtro exclusivo de red local:
+        # Si el evento está clasificado como FF o FC y tiene solución de otra red, siempre es parte del informe
+        if not es_rsa and claves_ff_fc and self._es_evento_ff_fc_en_catalogo(fila_cat, claves_ff_fc):
+            return True
+
         tipo_ev_activo = self.Cmb_bx_tipo_evento.currentText().strip().upper() if hasattr(self, 'Cmb_bx_tipo_evento') else ""
         if tipo_ev_activo in ('FF', 'FC', 'TELESISMO'):
             return True
 
         modo_red = self.cmbx_filtro_red.currentIndex() if hasattr(self, 'cmbx_filtro_red') else 0
-        if modo_red == 0:     # Solo RSA
+        if modo_red == 0:     # Solo RSA (+ FF/FC con información de otras redes)
             return es_rsa
         elif modo_red == 2:   # Solo Otras redes
             return not es_rsa
@@ -1547,14 +1733,14 @@ class Reporte_periodo(QMainWindow):
         como `self.nuevo_arbol` (.xml) por:
           1. Profundidad (por estratos Superficial/Medio/Profundo o por rango numérico en km).
           2. Magnitud (por umbral rápido o por rango numérico Mín–Máx en Md).
-          3. Número mínimo de estaciones caracterizadas (`cmbx_n_estaciones` para mecanismos focales).
+          3. Red sísmica (preservando siempre eventos FF/FC con información de otras redes).
+
+        Nota: El mínimo de estaciones para mecanismos focales es independiente y NO condiciona
+        la emisión de reportes convencionales (se exporta aparte con `exportar_candidatos_mecanismos_focales`).
         """
         self.nuevo_arbol = ET.ElementTree(ET.Element('sismo'))
         aplicar_filtros_sismologicos = (
             bool(self.ck_box_filtro.isChecked()) if hasattr(self, 'ck_box_filtro') else True
-        )
-        filtrar_nest_en_catalogo = (
-            bool(self.ck_nest_catalogo.isChecked()) if hasattr(self, 'ck_nest_catalogo') else True
         )
 
         coord_ = self.coordenadas[self.cmbx_zona.currentIndex()]
@@ -1564,12 +1750,7 @@ class Reporte_periodo(QMainWindow):
         long1 = float(coord_[2])
         estaciones = coord_[5].split()
 
-        try:
-            n_est_ = float(self.cmbx_n_estaciones.currentText()) if aplicar_filtros_sismologicos else 0.0
-        except ValueError:
-            n_est_ = 0.0
-
-        mapa_conteo_est = self._construir_mapa_conteo_estaciones() if n_est_ > 0 else {}
+        claves_ff_fc = self._construir_set_eventos_ff_fc()
 
         eventos_filtrados = [self.catalogo[0]]
         n_eventos = len(self.catalogo)
@@ -1586,27 +1767,16 @@ class Reporte_periodo(QMainWindow):
             except (ValueError, IndexError):
                 continue
 
-            # Filtro por Red Sísmica / Origen (Solo RSA por defecto vs Todas las redes vs Solo Otras redes)
-            if not self._cumple_filtro_red(fila_cat):
+            # Filtro por Red Sísmica / Origen (preservando siempre FF y FC con información de otras redes)
+            if not self._cumple_filtro_red(fila_cat, claves_ff_fc=claves_ff_fc):
                 continue
 
-            # Verificar filtros de Profundidad, Magnitud y N° de Estaciones cuando están activos
+            # Verificar filtros de Profundidad y Magnitud cuando están activos
             if aplicar_filtros_sismologicos:
                 if not self._cumple_filtro_profundidad(profundidad):
                     continue
                 if not self._cumple_filtro_magnitud(magnitud):
                     continue
-                if n_est_ > 0 and filtrar_nest_en_catalogo:
-                    id_cat = str(fila_cat[IDX_INDICE]).strip()
-                    ruta_cat = str(fila_cat[IDX_EVENTO]).strip()
-                    n_est_ev = max(
-                        mapa_conteo_est.get(id_cat, 0),
-                        mapa_conteo_est.get(ruta_cat, 0),
-                        mapa_conteo_est.get(os.path.basename(ruta_cat), 0)
-                    )
-                    # Si tenemos conteo registrado para ese sismo y es menor a n_est_, se descarta
-                    if n_est_ev > 0 and n_est_ev < n_est_:
-                        continue
 
             # Verificar pertenencia al recorte geográfico de la REGION
             if lat1 <= latitud <= lat2 and long1 <= longitud <= long2:
@@ -1647,7 +1817,7 @@ class Reporte_periodo(QMainWindow):
                     if 0 <= contador.days + 2 < len(self.resumen):
                         self.resumen[contador.days + 2] = self.resumen[contador.days + 2] + 1
 
-        # Filtrado consistente del árbol XML (Región + Red + Profundidad + Magnitud + N° Mínimo de Estaciones)
+        # Filtrado consistente del árbol XML (Región + Red + Profundidad + Magnitud; sin condicionar por mecanismos focales)
         for evento in self.raiz.findall('.//Evento'):
             try:
                 longitud = float(evento.find('longitud').text)
@@ -1664,9 +1834,6 @@ class Reporte_periodo(QMainWindow):
             if not self._cumple_filtro_red_xml(es_rsa_xml):
                 continue
 
-            registros = list(evento.iterfind("estaciones/estacion"))
-            numero_registros = len(registros)
-
             if not (long1 <= longitud <= long2 and lat1 <= latitud <= lat2):
                 continue
 
@@ -1675,12 +1842,116 @@ class Reporte_periodo(QMainWindow):
                     continue
                 if not self._cumple_filtro_magnitud(magnitud):
                     continue
-                if numero_registros < n_est_:
-                    continue
 
             nuevo_evento = ET.SubElement(self.nuevo_arbol.getroot(), 'Evento')
             for child in evento:
                 nuevo_evento.append(copy.deepcopy(child))
+
+    def exportar_candidatos_mecanismos_focales(self):
+        """
+        Exportación independiente de sismos candidatos para cálculo de mecanismos focales
+        (por evento, ej. FOCMEC/HASH/SEISAN) que cuenten con >= N estaciones caracterizadas.
+        NO modifica ni condiciona el catálogo ni el PDF del reporte convencional.
+        """
+        cat_base = getattr(self, 'catalogo_respaldo', None)
+        if not cat_base or len(cat_base) <= 1:
+            cat_base = getattr(self, 'catalogo', None)
+        if not cat_base or len(cat_base) <= 1:
+            QMessageBox.warning(
+                self,
+                "Sin Catálogo Cargado",
+                "Primero cargue un período en la Zona 1 antes de exportar candidatos para mecanismos focales.",
+            )
+            return
+
+        txt_nest = self.cmbx_n_estaciones.currentText().strip() if hasattr(self, 'cmbx_n_estaciones') else '6'
+        try:
+            n_est_min = int(float(txt_nest))
+        except ValueError:
+            n_est_min = 0
+
+        coord_ = self.coordenadas[self.cmbx_zona.currentIndex()]
+        lat1, lat2 = float(coord_[0]), float(coord_[1])
+        long1, long2 = float(coord_[2]), float(coord_[3])
+        mapa_conteo = self._construir_mapa_conteo_estaciones()
+
+        cat_mec = [cat_base[0]]
+        for fila in cat_base[1:]:
+            if not fila or len(fila) <= IDX_EVENTO:
+                continue
+            try:
+                lat = float(fila[IDX_LATITUD])
+                lon = float(fila[IDX_LONGITUD])
+            except (ValueError, IndexError):
+                continue
+            if not (lat1 <= lat <= lat2 and long1 <= lon <= long2):
+                continue
+            if n_est_min > 0:
+                id_c = str(fila[IDX_INDICE]).strip()
+                ruta_c = str(fila[IDX_EVENTO]).strip()
+                n_ev = max(
+                    mapa_conteo.get(id_c, 0),
+                    mapa_conteo.get(ruta_c, 0),
+                    mapa_conteo.get(os.path.basename(ruta_c), 0),
+                )
+                if n_ev < n_est_min:
+                    continue
+            cat_mec.append(fila)
+
+        arbol_mec = ET.ElementTree(ET.Element('sismo'))
+        if hasattr(self, 'raiz') and self.raiz is not None:
+            for ev_xml in self.raiz.findall('.//Evento'):
+                try:
+                    lon_x = float(ev_xml.find('longitud').text)
+                    lat_x = float(ev_xml.find('latitud').text)
+                except (AttributeError, ValueError, TypeError):
+                    continue
+                if not (lat1 <= lat_x <= lat2 and long1 <= lon_x <= long2):
+                    continue
+                n_reg = len(list(ev_xml.iterfind("estaciones/estacion")))
+                if n_est_min > 0 and n_reg < n_est_min:
+                    continue
+                nuevo_ev = ET.SubElement(arbol_mec.getroot(), 'Evento')
+                for child in ev_xml:
+                    nuevo_ev.append(copy.deepcopy(child))
+
+        base_rep = str(getattr(self, 'directorio_reporte', '')).rstrip('/\\')
+        if not base_rep:
+            base_rep = os.path.join(self.directorio_trabajo, 'reportes')
+        dir_mec = os.path.join(base_rep, 'mecanismos_focales')
+        os.makedirs(dir_mec, exist_ok=True)
+
+        if getattr(self, 'periodo_reporte', '').startswith('Período: '):
+            nom_base = self.periodo_reporte[9:].replace('/', '_').strip()
+        else:
+            nom_base = getattr(self, 'periodo_reporte', 'periodo')[:10].strip() or 'periodo'
+
+        etq_n = f"min{n_est_min}est" if n_est_min > 0 else "todas_est"
+        ruta_csv_mec = os.path.join(dir_mec, f"{nom_base}_mecanismos_{etq_n}_cat.csv")
+        ruta_xml_mec = os.path.join(dir_mec, f"{nom_base}_mecanismos_{etq_n}.xml")
+
+        with open(ruta_csv_mec, 'w', newline='') as f_csv:
+            wr = csv.writer(f_csv, delimiter=';')
+            for fila in cat_mec:
+                wr.writerow(fila)
+        arbol_mec.write(ruta_xml_mec)
+
+        n_cand = max(0, len(cat_mec) - 1)
+        self._registrar_bitacora(
+            f"✓ Candidatos para Mecanismos Focales exportados (independiente del reporte):\n"
+            f"  • Criterio: >= {n_est_min if n_est_min > 0 else 'todas'} estaciones | Región: {self.cmbx_zona.currentText().strip()}\n"
+            f"  • Eventos candidatos encontrados: {n_cand}\n"
+            f"  • CSV: {ruta_csv_mec}\n"
+            f"  • XML: {ruta_xml_mec}"
+        )
+        QMessageBox.information(
+            self,
+            "Candidatos para Mecanismos Focales",
+            f"Exportación independiente completada ({n_cand} eventos candidatos).\n\n"
+            f"CSV: {os.path.basename(ruta_csv_mec)}\n"
+            f"XML: {os.path.basename(ruta_xml_mec)}\n\n"
+            f"Carpeta: {dir_mec}",
+        )
 
 
     def Cargar_catalogo(self):
@@ -2019,6 +2290,13 @@ class Reporte_periodo(QMainWindow):
         )
         QtWidgets.QApplication.processEvents()
 
+        dlg_prog = DialogoProgresoReporte("Generando Reporte Especial por Estaciones", parent=self)
+        dlg_prog.show()
+        dlg_prog.actualizar(1, 4, "Etapa 1/4: Iniciando cruce de catálogo...", 0, 1, nombre_pdf)
+
+        def callback_etapa(num_et, tot_et, titulo_et, act, tot, detalle):
+            dlg_prog.actualizar(num_et, tot_et, titulo_et, act, tot, detalle)
+
         def callback_progreso(actual, total, sis_id):
             if actual % 5 == 0 or actual == total:
                 self._registrar_bitacora(f"  -> Procesando sismo {actual}/{total} ({sis_id})...")
@@ -2045,7 +2323,9 @@ class Reporte_periodo(QMainWindow):
                 progreso_callback=callback_progreso,
                 umbral_pga_min=umbral_pga,
                 eventos=eventos_acumulados,
+                etapa_callback=callback_etapa,
             )
+            dlg_prog.close()
 
             if resultado.get('exito'):
                 ruta_csv_acel = resultado.get('ruta_csv_aceleraciones')
@@ -2076,6 +2356,7 @@ class Reporte_periodo(QMainWindow):
                 QMessageBox.warning(self, "Aviso de Generación", resultado.get('mensaje', 'No se generó el PDF.'))
 
         except Exception as e:
+            dlg_prog.close()
             self._registrar_bitacora(f"❌ Error generando reporte PDF por estaciones: {str(e)}")
             QMessageBox.critical(self, "Error en Generación de Reporte", f"Ocurrió un error al generar el PDF:\n{str(e)}")
 
