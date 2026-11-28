@@ -51,10 +51,12 @@ from rsa_fasthypo import DialogoLocalizarFastHypo, EventoP, FaseEstacionP
 class VentanaPrincipal(QMainWindow):
     cerrado = pyqtSignal()
 
-    def __init__(self, archivo=None, directorio_trabajo=None, responsable=None, periodo=None, parent=None):
+    def __init__(self, archivo=None, directorio_trabajo=None, responsable=None, periodo=None, parent=None, evento_inicial=None):
         super().__init__(parent)
         self.setWindowTitle("Marcador de Fases Sísmicas - RSA")
-        self.showMaximized()
+        self.resize(1280, 760)
+        # Módulo profundo: deshabilitar botón X de cierre para forzar salida controlada por '← Volver'
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowCloseButtonHint)
 
         # Compatibilidad de parámetros: si el primer argumento es un QWidget parent
         if isinstance(archivo, QWidget):
@@ -64,6 +66,7 @@ class VentanaPrincipal(QMainWindow):
         self.archivo = str(archivo) if archivo else ""
         self.responsable = responsable or "RSA"
         self.periodo = periodo or "00:00 - 12:00"
+        self.evento_inicial = str(evento_inicial).strip() if evento_inicial else ""
 
         # Configuración y resolución del directorio de trabajo base
         if directorio_trabajo and os.path.exists(directorio_trabajo):
@@ -175,22 +178,12 @@ class VentanaPrincipal(QMainWindow):
         widget_central.setLayout(layout_principal)
         self.setCentralWidget(widget_central)
 
-        # Ocultar botón '..dia\' (el directorio viene establecido desde el inicio) y agregar reclasificación FC / FF
+        # Ocultar botón '..dia\' (el directorio viene establecido desde el inicio).
+        # La reclasificación de eventos (FC/FF/Ruido/etc.) se gestiona en Procesamiento principal.
         if hasattr(self, 'boton_directorio'):
             self.boton_directorio.setVisible(False)
-        if hasattr(self, 'layoutBotonesInferiores'):
-            self.boton_marcar_fc = QPushButton("Tipo: FC")
-            self.boton_marcar_fc.setToolTip("Cambiar la clasificación del evento actual de SISMO a FC en el CSV del día")
-            self.boton_marcar_fc.setStyleSheet("background-color: #d97706; color: white; font-weight: bold;")
-            self.boton_marcar_fc.clicked.connect(lambda: self.reclasificar_evento_actual("FC"))
-
-            self.boton_marcar_ff = QPushButton("Tipo: FF")
-            self.boton_marcar_ff.setToolTip("Cambiar la clasificación del evento actual de SISMO a FF en el CSV del día")
-            self.boton_marcar_ff.setStyleSheet("background-color: #b45309; color: white; font-weight: bold;")
-            self.boton_marcar_ff.clicked.connect(lambda: self.reclasificar_evento_actual("FF"))
-
-            self.layoutBotonesInferiores.insertWidget(0, self.boton_marcar_fc)
-            self.layoutBotonesInferiores.insertWidget(1, self.boton_marcar_ff)
+        self.evento_ultimo_activo = ""
+        self._cerrado_emitido = False
 
         # Conectar señales de la interfaz
         self.combo_sis.currentIndexChanged.connect(self.cargar_evento)
@@ -224,11 +217,14 @@ class VentanaPrincipal(QMainWindow):
         self.cargar_dia()
 
     def cerrar_ventana(self):
-        self.cerrado.emit()
         self.close()
 
     def closeEvent(self, event):
-        self.cerrado.emit()
+        if hasattr(self, 'combo_sis') and self.combo_sis.count() > 0:
+            self.evento_ultimo_activo = self.combo_sis.currentText().strip()
+        if not getattr(self, '_cerrado_emitido', False):
+            self._cerrado_emitido = True
+            self.cerrado.emit()
         super().closeEvent(event)
 
     def cambiar_directorio(self):
@@ -349,7 +345,21 @@ class VentanaPrincipal(QMainWindow):
         self.combo_sis.blockSignals(False)
 
         if archivos_sis:
-            self.combo_sis.setCurrentIndex(0)
+            idx_inicial = 0
+            ev_buscado = getattr(self, 'evento_inicial', '')
+            if ev_buscado:
+                ev_b_norm = Path(ev_buscado).stem.replace('_', '')
+                if len(ev_b_norm) == 12 and ev_b_norm.isdigit():
+                    ev_b_norm = '20' + ev_b_norm
+                for k_ev, nom_ev in enumerate(archivos_sis):
+                    n_norm = Path(nom_ev).stem.replace('_', '')
+                    if len(n_norm) == 12 and n_norm.isdigit():
+                        n_norm = '20' + n_norm
+                    if nom_ev == ev_buscado or n_norm == ev_b_norm:
+                        idx_inicial = k_ev
+                        break
+                self.evento_inicial = ""
+            self.combo_sis.setCurrentIndex(idx_inicial)
             self.actualizar_estilo_combo_actual()
             self.cargar_evento()
         else:
@@ -1646,9 +1656,19 @@ class VentanaGrafico(QMainWindow):
         self.canvas = FigureCanvas(self.figura)
         layout_principal.addWidget(self.canvas, 1)
 
-        # Barra de navegación inferior
+        # Barra de navegación inferior + botón unificado '← Volver' a la derecha
+        barra_inferior = QHBoxLayout()
         self.toolbar = NavigationToolbar(self.canvas, self)
-        layout_principal.addWidget(self.toolbar)
+        barra_inferior.addWidget(self.toolbar, 1)
+        self.boton_volver_grafico = QPushButton("← Volver")
+        self.boton_volver_grafico.setMinimumSize(110, 32)
+        self.boton_volver_grafico.setStyleSheet("font-weight: bold; padding: 4px 14px;")
+        self.boton_volver_grafico.clicked.connect(self.close)
+        barra_inferior.addWidget(self.boton_volver_grafico)
+        layout_principal.addLayout(barra_inferior)
+
+        # Módulo profundo (nivel 3): deshabilitar la X de la ventana para volver siempre por '← Volver'
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowCloseButtonHint)
 
         self.setCentralWidget(widget_central)
 

@@ -68,17 +68,65 @@
     </property>
    </widget>
   </widget>
+  <widget class="QGroupBox" name="grupo_metodo_proc">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>350</y>
+     <width>231</width>
+     <height>42</height>
+    </rect>
+   </property>
+   <property name="title">
+    <string>MÉTODO DE PROCESAMIENTO</string>
+   </property>
+   <widget class="QRadioButton" name="rb_metodo_python">
+    <property name="geometry">
+     <rect>
+      <x>8</x>
+      <y>18</y>
+      <width>132</width>
+      <height>18</height>
+     </rect>
+    </property>
+    <property name="toolTip">
+     <string>Abre el subprograma Fases / FASTHYPO en Python directamente en el evento seleccionado y al cerrar vuelve a Procesamiento.</string>
+    </property>
+    <property name="text">
+     <string>Python (FASTHYPO)</string>
+    </property>
+    <property name="checked">
+     <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="QRadioButton" name="rb_metodo_virtual">
+    <property name="geometry">
+     <rect>
+      <x>144</x>
+      <y>18</y>
+      <width>80</width>
+      <height>18</height>
+     </rect>
+    </property>
+    <property name="toolTip">
+     <string>Usa el flujo clásico mediante la Máquina Virtual (ProcesoV2 / DOS).</string>
+    </property>
+    <property name="text">
+     <string>Virtual</string>
+    </property>
+   </widget>
+  </widget>
   <widget class="QPushButton" name="Btn_Salir">
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>462</y>
+     <y>512</y>
      <width>231</width>
      <height>23</height>
     </rect>
    </property>
    <property name="text">
-    <string>Salir</string>
+    <string>← Volver</string>
    </property>
   </widget>
   <widget class="QLabel" name="Lbl_directorio">
@@ -88,7 +136,7 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>492</y>
+     <y>540</y>
      <width>211</width>
      <height>20</height>
     </rect>
@@ -109,7 +157,7 @@
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>347</y>
+     <y>396</y>
      <width>231</width>
      <height>111</height>
     </rect>

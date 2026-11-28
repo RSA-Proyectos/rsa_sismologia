@@ -1331,8 +1331,17 @@ class Reporte_enjambre(QWidget, Ui_FormReporteEnjambre):
             if resp != QMessageBox.Yes:
                 return
 
+        from subprogramas.respaldo_base_datos import solicitar_destino_externo_si_liviana
+        dir_externo_enj = solicitar_destino_externo_si_liviana(
+            self,
+            self.directorio_trabajo,
+            "Base de Datos Liviana — Seleccione carpeta externa para guardar el informe de enjambre",
+        )
+        if dir_externo_enj == "":
+            return
+
         zona_rep = self.cmbx_zona.currentText().strip()
-        base_rep = str(getattr(self, "directorio_reporte", self.directorio_trabajo)).rstrip("/\\")
+        base_rep = str(dir_externo_enj if dir_externo_enj else getattr(self, "directorio_reporte", self.directorio_trabajo)).rstrip("/\\")
         directorio_destino = f"{base_rep}/Enjambres/{zona_rep}/"
         try:
             Path(directorio_destino).mkdir(parents=True, exist_ok=True)

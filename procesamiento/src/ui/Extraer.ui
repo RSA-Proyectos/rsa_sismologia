@@ -687,7 +687,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Salir</string>
+     <string>← Volver</string>
     </property>
    </widget>
    <widget class="QLabel" name="Lbl_directorio">

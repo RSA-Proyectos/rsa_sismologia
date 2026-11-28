@@ -1694,6 +1694,9 @@ def imprimir_reporte_especial_estaciones(
                 'trCanal': trCanal_precarga
             })
 
+    # Ordenar estrictamente en orden cronológico (normalizando 2 y 4 dígitos de año a AAAAMMDDhhmmss)
+    eventos_calificados.sort(key=lambda ev: _normalizar_base_sis(ev['sis_id']))
+
     if not eventos_calificados:
         detalle_umb = f" con aceleración ≥ {umbral_pga_min:.2f} cm/s²" if umbral_pga_min > 0 else ""
         return {

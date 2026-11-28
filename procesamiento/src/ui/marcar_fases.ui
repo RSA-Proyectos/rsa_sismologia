@@ -140,16 +140,16 @@
        <item>
         <widget class="QGroupBox" name="grupo_csv">
          <property name="title">
-          <string>Configuración CSV (Matriz Evento)</string>
+          <string>Configuración CSV y Filtro (Matriz Evento)</string>
          </property>
          <layout class="QGridLayout" name="gridCsv">
           <property name="horizontalSpacing">
-           <number>4</number>
+           <number>5</number>
           </property>
           <property name="verticalSpacing">
-           <number>3</number>
+           <number>4</number>
           </property>
-          <item row="0" column="0" colspan="2">
+          <item row="0" column="0" colspan="4">
            <widget class="QCheckBox" name="chk_csv_aporta">
             <property name="text">
              <string>Aporta a solución (B=1)</string>
@@ -159,14 +159,17 @@
             </property>
            </widget>
           </item>
-          <item row="0" column="2">
+          <item row="0" column="4">
            <widget class="QLabel" name="label_csv_canal">
             <property name="text">
              <string>Canal:</string>
             </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignVCenter</set>
+            </property>
            </widget>
           </item>
-          <item row="0" column="3">
+          <item row="0" column="5">
            <widget class="QSpinBox" name="spbox_csv_canal">
             <property name="minimum">
              <number>1</number>
@@ -182,7 +185,10 @@
           <item row="1" column="0">
            <widget class="QLabel" name="label_csv_orden">
             <property name="text">
-             <string>Ord:</string>
+             <string>Orden:</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignVCenter</set>
             </property>
            </widget>
           </item>
@@ -202,7 +208,10 @@
           <item row="1" column="2">
            <widget class="QLabel" name="label_csv_finf">
             <property name="text">
-             <string>f inf:</string>
+             <string>F inf:</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignVCenter</set>
             </property>
            </widget>
           </item>
@@ -219,14 +228,17 @@
             </property>
            </widget>
           </item>
-          <item row="2" column="0" colspan="2">
+          <item row="1" column="4">
            <widget class="QLabel" name="label_csv_fsup">
             <property name="text">
-             <string>f sup:</string>
+             <string>F sup:</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignRight|Qt::AlignVCenter</set>
             </property>
            </widget>
           </item>
-          <item row="2" column="2" colspan="2">
+          <item row="1" column="5">
            <widget class="QDoubleSpinBox" name="spbox_csv_fsup">
             <property name="suffix">
              <string> Hz</string>
@@ -329,8 +341,14 @@
       </item>
       <item>
        <widget class="QPushButton" name="boton_salir">
+        <property name="minimumHeight">
+         <number>32</number>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">font-weight: bold; padding: 4px 12px;</string>
+        </property>
         <property name="text">
-         <string>Salir</string>
+         <string>← Volver</string>
         </property>
        </widget>
       </item>

@@ -930,7 +930,7 @@ MAGNITUD</string>
      </rect>
     </property>
     <property name="text">
-     <string>Salir</string>
+     <string>← Volver</string>
     </property>
    </widget>
    <widget class="QPushButton" name="Btn_guardar">

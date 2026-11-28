@@ -1,0 +1,581 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>RespaldoBaseDatosWindow</class>
+ <widget class="QMainWindow" name="RespaldoBaseDatosWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>880</width>
+    <height>660</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Respaldo y Sincronización de Base de Datos (DIA) — RSA Sismología</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="layout_principal">
+    <property name="spacing">
+     <number>10</number>
+    </property>
+    <property name="leftMargin">
+     <number>14</number>
+    </property>
+    <property name="topMargin">
+     <number>12</number>
+    </property>
+    <property name="rightMargin">
+     <number>14</number>
+    </property>
+    <property name="bottomMargin">
+     <number>12</number>
+    </property>
+    <item>
+     <widget class="QLabel" name="lbl_titulo_respaldo">
+      <property name="styleSheet">
+       <string notr="true">font-size: 13pt; font-weight: bold; color: #1565C0;</string>
+      </property>
+      <property name="text">
+       <string>Respaldo y Sincronización de Base de Datos Sísmica (DIA)</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="lbl_subtitulo_respaldo">
+      <property name="styleSheet">
+       <string notr="true">color: #455A64; font-size: 9pt;</string>
+      </property>
+      <property name="wordWrap">
+       <bool>true</bool>
+      </property>
+      <property name="text">
+       <string>Respalda incrementalmente el directorio de trabajo (ej. Google Drive G:\Mi unidad\DIA\) hacia una carpeta maestra o archivo ZIP portable. Nunca borra archivos en el destino: solo copia archivos nuevos o más recientes.</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QTabWidget" name="tabs_respaldo">
+      <property name="currentIndex">
+       <number>0</number>
+      </property>
+      <!-- PESTAÑA 1: SINCRONIZAR A CARPETA -->
+      <widget class="QWidget" name="tab_carpeta">
+       <attribute name="title">
+        <string>1. Sincronizar a Carpeta</string>
+       </attribute>
+       <layout class="QGridLayout" name="grid_tab_carpeta">
+        <item row="0" column="0">
+         <widget class="QLabel" name="lbl_orig_c">
+          <property name="text">
+           <string>Carpeta Origen (trabajo):</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLineEdit" name="txt_origen_carpeta">
+          <property name="placeholderText">
+           <string>Ej. G:\Mi unidad\DIA\  o una subcarpeta de año/mes/día</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QPushButton" name="btn_examinar_origen_carpeta">
+          <property name="text">
+           <string>Examinar...</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="lbl_dest_c">
+          <property name="text">
+           <string>Carpeta Destino (respaldo):</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QLineEdit" name="txt_destino_carpeta">
+          <property name="placeholderText">
+           <string>Ej. C:\DIA\  o disco externo de respaldo maestro</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QPushButton" name="btn_examinar_destino_carpeta">
+          <property name="text">
+           <string>Examinar...</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0" colspan="3">
+         <layout class="QHBoxLayout" name="lay_periodo_carpeta">
+          <item>
+           <widget class="QCheckBox" name="chk_periodo_carpeta">
+            <property name="text">
+             <string>Filtrar por período:</string>
+            </property>
+            <property name="checked">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_c_desde">
+            <property name="text">
+             <string>Desde:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QDateEdit" name="date_carpeta_ini">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="calendarPopup">
+             <bool>true</bool>
+            </property>
+            <property name="displayFormat">
+             <string>dd/MM/yyyy</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_c_hasta">
+            <property name="text">
+             <string>Hasta:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QDateEdit" name="date_carpeta_fin">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="calendarPopup">
+             <bool>true</bool>
+            </property>
+            <property name="displayFormat">
+             <string>dd/MM/yyyy</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="sp_per_c">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>20</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item row="3" column="0" colspan="3">
+         <widget class="QGroupBox" name="grp_modo_carpeta">
+          <property name="title">
+           <string>Alcance del respaldo</string>
+          </property>
+          <layout class="QVBoxLayout" name="lay_modo_carpeta">
+           <item>
+            <widget class="QRadioButton" name="rb_carpeta_liviano">
+             <property name="text">
+              <string>Respaldo liviano — Omitir archivos pesados (mseed\registros continuos y archivos .pdf)</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+             <property name="toolTip">
+              <string>Conserva toda la base operativa (CSV, _aux, _cat, _rep, _res, XML, dia/.sis/.fas, fastHypo/, mseed/eventos/, reportes, procesamiento, shapes) omitiendo registros continuos de 24h y PDFs.</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QRadioButton" name="rb_carpeta_completo">
+             <property name="text">
+              <string>Respaldo completo — Copiar absolutamente todo el contenido del directorio origen</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item row="4" column="0" colspan="3">
+         <layout class="QHBoxLayout" name="lay_btns_carpeta">
+          <item>
+           <widget class="QPushButton" name="btn_analizar_carpeta">
+            <property name="minimumHeight">
+             <number>32</number>
+            </property>
+            <property name="text">
+             <string>Analizar (Vista previa sin copiar)</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_ejecutar_carpeta">
+            <property name="minimumHeight">
+             <number>32</number>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">font-weight: bold; background-color: #1565C0; color: white; padding: 5px 14px;</string>
+            </property>
+            <property name="text">
+             <string>Iniciar Respaldo a Carpeta</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+      <!-- PESTAÑA 2: EXPORTAR A ZIP -->
+      <widget class="QWidget" name="tab_exportar_zip">
+       <attribute name="title">
+        <string>2. Exportar a ZIP</string>
+       </attribute>
+       <layout class="QGridLayout" name="grid_tab_zip_exp">
+        <item row="0" column="0">
+         <widget class="QLabel" name="lbl_orig_z">
+          <property name="text">
+           <string>Carpeta Origen a empaquetar:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLineEdit" name="txt_origen_zip">
+          <property name="placeholderText">
+           <string>Ej. G:\Mi unidad\DIA\  o una carpeta de año/mes</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QPushButton" name="btn_examinar_origen_zip">
+          <property name="text">
+           <string>Examinar...</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="lbl_dest_z">
+          <property name="text">
+           <string>Archivo ZIP de salida:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QLineEdit" name="txt_archivo_zip_salida">
+          <property name="placeholderText">
+           <string>Ej. D:\respaldos\respaldo_DIA_20261127.zip</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QPushButton" name="btn_examinar_zip_salida">
+          <property name="text">
+           <string>Guardar como...</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0" colspan="3">
+         <layout class="QHBoxLayout" name="lay_periodo_zip">
+          <item>
+           <widget class="QCheckBox" name="chk_periodo_zip">
+            <property name="text">
+             <string>Filtrar por período:</string>
+            </property>
+            <property name="checked">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_z_desde">
+            <property name="text">
+             <string>Desde:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QDateEdit" name="date_zip_ini">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="calendarPopup">
+             <bool>true</bool>
+            </property>
+            <property name="displayFormat">
+             <string>dd/MM/yyyy</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_z_hasta">
+            <property name="text">
+             <string>Hasta:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QDateEdit" name="date_zip_fin">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="calendarPopup">
+             <bool>true</bool>
+            </property>
+            <property name="displayFormat">
+             <string>dd/MM/yyyy</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="sp_per_z">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>20</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item row="3" column="0" colspan="3">
+         <widget class="QGroupBox" name="grp_modo_zip">
+          <property name="title">
+           <string>Contenido del archivo ZIP (soporta ZIP64 &gt; 4 GB e incluye manifiesto exacto de fechas)</string>
+          </property>
+          <layout class="QVBoxLayout" name="lay_modo_zip">
+           <item>
+            <widget class="QRadioButton" name="rb_zip_liviano">
+             <property name="text">
+              <string>ZIP liviano — Omitir archivos pesados (mseed\registros continuos y archivos .pdf)</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QRadioButton" name="rb_zip_completo">
+             <property name="text">
+              <string>ZIP completo — Incluir absolutamente todo el contenido del directorio origen</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item row="4" column="0" colspan="3">
+         <layout class="QHBoxLayout" name="lay_btns_zip_exp">
+          <item>
+           <widget class="QPushButton" name="btn_analizar_zip_exp">
+            <property name="minimumHeight">
+             <number>32</number>
+            </property>
+            <property name="text">
+             <string>Analizar volumen a empaquetar</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_ejecutar_zip_exp">
+            <property name="minimumHeight">
+             <number>32</number>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">font-weight: bold; background-color: #2E7D32; color: white; padding: 5px 14px;</string>
+            </property>
+            <property name="text">
+             <string>Generar Archivo ZIP</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+      <!-- PESTAÑA 3: IMPORTAR DESDE ZIP -->
+      <widget class="QWidget" name="tab_importar_zip">
+       <attribute name="title">
+        <string>3. Importar / Descomprimir ZIP</string>
+       </attribute>
+       <layout class="QGridLayout" name="grid_tab_zip_imp">
+        <item row="0" column="0">
+         <widget class="QLabel" name="lbl_zip_in">
+          <property name="text">
+           <string>Archivo ZIP de respaldo:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLineEdit" name="txt_archivo_zip_entrada">
+          <property name="placeholderText">
+           <string>Seleccione el archivo .zip generado desde la otra computadora</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QPushButton" name="btn_examinar_zip_entrada">
+          <property name="text">
+           <string>Examinar ZIP...</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="lbl_dest_imp">
+          <property name="text">
+           <string>Carpeta Destino (maestra):</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QLineEdit" name="txt_destino_importar">
+          <property name="placeholderText">
+           <string>Ej. C:\DIA\  (donde se fusionará el contenido del ZIP)</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="2">
+         <widget class="QPushButton" name="btn_examinar_destino_importar">
+          <property name="text">
+           <string>Examinar...</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0" colspan="3">
+         <widget class="QCheckBox" name="chk_forzar_reemplazo_zip">
+          <property name="text">
+           <string>Forzar reemplazo de todos los archivos existentes (si se desmarca, solo reemplaza si el del ZIP es más reciente o no existe)</string>
+          </property>
+          <property name="checked">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="0" colspan="3">
+         <layout class="QHBoxLayout" name="lay_btns_zip_imp">
+          <item>
+           <widget class="QPushButton" name="btn_analizar_zip_imp">
+            <property name="minimumHeight">
+             <number>32</number>
+            </property>
+            <property name="text">
+             <string>Analizar ZIP (Vista previa sin extraer)</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_ejecutar_zip_imp">
+            <property name="minimumHeight">
+             <number>32</number>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">font-weight: bold; background-color: #6A1B9A; color: white; padding: 5px 14px;</string>
+            </property>
+            <property name="text">
+             <string>Descomprimir en Destino</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+    <!-- PROGRESO Y BITACORA COMPARTIDA -->
+    <item>
+     <widget class="QGroupBox" name="grp_progreso_respaldo">
+      <property name="title">
+       <string>Progreso y Bitácora</string>
+      </property>
+      <layout class="QVBoxLayout" name="lay_progreso_respaldo">
+       <item>
+        <widget class="QLabel" name="lbl_estado_respaldo">
+         <property name="text">
+          <string>Listo. Seleccione las rutas y pulse Analizar o Iniciar.</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QProgressBar" name="barra_progreso_respaldo">
+         <property name="value">
+          <number>0</number>
+         </property>
+         <property name="format">
+          <string>%v / %m (%p%)</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPlainTextEdit" name="txt_bitacora_respaldo">
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">font-family: Consolas, 'Courier New', monospace; font-size: 9pt;</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="lay_botones_pie">
+      <item>
+       <spacer name="espaciador_pie">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_cancelar_respaldo">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="minimumHeight">
+         <number>32</number>
+        </property>
+        <property name="text">
+         <string>Cancelar</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_salir_respaldo">
+        <property name="minimumSize">
+         <size>
+          <width>110</width>
+          <height>32</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">font-weight: bold; padding: 4px 14px;</string>
+        </property>
+        <property name="text">
+         <string>← Volver</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

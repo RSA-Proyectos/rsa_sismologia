@@ -712,6 +712,15 @@ class Reporte_periodo(QMainWindow):
         self.raiz = self.arbol.getroot()
 
     def Guardar_(self):
+        from subprogramas.respaldo_base_datos import solicitar_destino_externo_si_liviana
+        dir_externo = solicitar_destino_externo_si_liviana(
+            self,
+            self.directorio_trabajo,
+            "Base de Datos Liviana — Seleccione carpeta externa para guardar el informe",
+        )
+        if dir_externo == "":
+            return
+
         dlg_prog = DialogoProgresoReporte(
             "Generando Reporte de Período",
             parent=self,
@@ -725,7 +734,7 @@ class Reporte_periodo(QMainWindow):
                 self.Cargar_catalogo()
             self.filtros()
             dlg_prog.actualizar(1, 4, "Etapa 1/4: Aplicando filtros y preparando catálogos...", 2, 2, f"Eventos filtrados: {max(0, len(self.catalogo) - 1)}")
-            self._guardar_cuerpo_reporte(dlg_prog)
+            self._guardar_cuerpo_reporte(dlg_prog, directorio_externo=dir_externo)
             guardado_ok = True
         finally:
             dlg_prog.close()
@@ -735,14 +744,14 @@ class Reporte_periodo(QMainWindow):
             self.inicializar_variables()
             self.Btn_guardar.setEnabled(False)
 
-    def _guardar_cuerpo_reporte(self, dlg_prog=None):
+    def _guardar_cuerpo_reporte(self, dlg_prog=None, directorio_externo=None):
         if self.periodo_reporte[0:9]=='Período: ':
             #Por periodo
             nombre_=self.periodo_reporte[9:].replace('/', '_').strip()
         else:
             #semanal
             nombre_=self.periodo_reporte[:10].strip()
-        base_rep = str(self.directorio_reporte).rstrip("/\\")
+        base_rep = str(directorio_externo if directorio_externo else self.directorio_reporte).rstrip("/\\")
         zona_rep = self.cmbx_zona.currentText().strip()
         directorio_ = f"{base_rep}/{zona_rep}/"
         try:
@@ -2267,7 +2276,16 @@ class Reporte_periodo(QMainWindow):
         else:
             nombre_periodo = self.periodo_reporte[:10].strip()
 
-        base_rep = str(self.directorio_reporte).rstrip("/\\")
+        from subprogramas.respaldo_base_datos import solicitar_destino_externo_si_liviana
+        dir_externo_esp = solicitar_destino_externo_si_liviana(
+            self,
+            self.directorio_trabajo,
+            "Base de Datos Liviana — Seleccione carpeta externa para el reporte por estaciones",
+        )
+        if dir_externo_esp == "":
+            return
+
+        base_rep = str(dir_externo_esp if dir_externo_esp else self.directorio_reporte).rstrip("/\\")
         dir_salida = os.path.join(base_rep, "reportes_especiales")
         os.makedirs(dir_salida, exist_ok=True)
 

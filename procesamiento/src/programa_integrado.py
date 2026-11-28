@@ -45,6 +45,7 @@ from subprogramas.reporte_enjambre import Reporte_enjambre
 from subprogramas.inicio import Inicio_proceso
 from subprogramas.otras_redes import Otras_redes
 from subprogramas.reconstruccion_eventos import Reconstruccion_eventos
+from subprogramas.respaldo_base_datos import RespaldoBaseDatos, es_base_datos_liviana
 from subprogramas.configuracion_sistema import (
     Configurar_estaciones,
     Configurar_analogicas,
@@ -202,12 +203,29 @@ class VentanaPrincipal(QMainWindow):
         self.archivo = archivo
         self.directorio_trabajo = directorio_trabajo
         self.responsable = responsable
-        self.periodo = periodo
+        self.es_bd_liviana = es_base_datos_liviana(directorio_trabajo)
+        if self.es_bd_liviana:
+            # Base de datos liviana: forzar únicamente modo reportes de período
+            self.periodo = ''
+        else:
+            self.periodo = periodo
 
         self.datos_inicializados = True
         self.pila_estados.clear()
         self.limpiar_widget_inicializacion()
         self.establecer_estado_trabajo()
+
+        if self.es_bd_liviana:
+            self.setWindowTitle(self.windowTitle() + "  [BASE LIVIANA — SOLO REPORTES DE PERÍODO]")
+            QMessageBox.information(
+                self,
+                "Base de Datos Liviana Detectada",
+                "El directorio seleccionado corresponde a un RESPALDO LIVIANO "
+                "(sin registros continuos ni PDFs).\n\n"
+                "• Se habilitaron únicamente los Reportes de Período y Enjambre.\n"
+                "• Al generar informes se solicitará una carpeta destino externa "
+                "para no almacenar PDFs dentro de la base de datos.",
+            )
 
     def cancelar_inicializacion(self):
         """Se ejecuta si el usuario cancela la inicialización de día"""
@@ -388,6 +406,12 @@ class VentanaPrincipal(QMainWindow):
         self.accion_restaurar_programa.triggered.connect(self.restaurar_programa)
         self.menu_configuracion.addAction(self.accion_restaurar_programa)
 
+        self.menu_configuracion.addSeparator()
+
+        self.accion_respaldo_bd = QAction('Respaldo de base de datos (DIA — Carpeta / ZIP)', self)
+        self.accion_respaldo_bd.triggered.connect(self.abrir_respaldo_base_datos)
+        self.menu_configuracion.addAction(self.accion_respaldo_bd)
+
         ##########################################################################################
         #  Menú tres: Ingreso de Datos (Habilitado en modo Período: estaciones fuera de línea y otras redes)
         ##########################################################################################
@@ -447,9 +471,9 @@ class VentanaPrincipal(QMainWindow):
         self.accion_procesamiento.triggered.connect(self.procesamiento)
         self.menu_procesamiento.addAction(self.accion_procesamiento)
 
-        self.accion_fases = QAction('Fases', self)
-        self.accion_fases.triggered.connect(self.mostrar_fases)
-        self.menu_procesamiento.addAction(self.accion_fases)
+        # Nota: el subprograma Fases / FASTHYPO en Python ahora se lanza desde adentro de
+        # Procesamiento (selector Python FASTHYPO vs Virtual) para garantizar Otras Redes,
+        # gestión de aportes HAB, reportes individuales y cierre de turno.
 
         self.accion_reextraccion = QAction('Reextracción', self)
         self.accion_reextraccion.triggered.connect(self.reextracion)
@@ -689,6 +713,16 @@ class VentanaPrincipal(QMainWindow):
             True,
         )
 
+    def abrir_respaldo_base_datos(self):
+        """Cargar subprograma de Respaldo y Sincronización de Base de Datos (DIA)"""
+        widget_resp = RespaldoBaseDatos(self.directorio_trabajo)
+        self.cargar_widget_menu(
+            widget_resp,
+            'PROCESAMIENTO INTEGRADO - RESPALDO DE BASE DE DATOS (DIA)',
+            False,
+            requiere_inicializacion=False,
+        )
+
     ##########################################################################################
     #  Menú tres: Informes
     ##########################################################################################
@@ -878,7 +912,13 @@ class VentanaPrincipal(QMainWindow):
         self.menu_inicio.setEnabled(True)
         # Configuración solo está habilitado en el Estado A inicial (igual que Inicialización de día)
         self.menu_configuracion.setEnabled(False)
-        if self.periodo == '':
+        if getattr(self, 'es_bd_liviana', False):
+            # BASE DE DATOS LIVIANA: únicamente Informes (reportes de período / enjambre)
+            self.menu_informes.setEnabled(True)
+            self.menu_ingreso_datos.setEnabled(False)
+            self.menu_procesamiento.setEnabled(False)
+            self.menu_otros_informes.setEnabled(False)
+        elif self.periodo == '':
             # MODO PERÍODO / CONSOLIDADO
             self.menu_ingreso_datos.setEnabled(True)
             self.menu_informes.setEnabled(True)
@@ -893,6 +933,7 @@ class VentanaPrincipal(QMainWindow):
         self.menu_ayuda.setEnabled(True)
         self.accion_inicializar_dia.setVisible(False)
         self.accion_salir.setVisible(True)
+        self._establecer_cierre_ventana_habilitado(True)
 
     def deshabilitar_menus(self):
         """Deshabilita menús de trabajo (en Estado A inicial deja activos Inicio y Configuración; dentro de subprograma los deshabilita)"""
@@ -905,6 +946,8 @@ class VentanaPrincipal(QMainWindow):
             self.menu_configuracion.setEnabled(False)
             self.accion_respaldo_programa.setEnabled(False)
             self.accion_restaurar_programa.setEnabled(False)
+            # Inhibir cierre desde la X de la ventana mientras hay un subprograma activo
+            self._establecer_cierre_ventana_habilitado(False)
         else:
             self.menu_inicio.setEnabled(True)
             self.menu_configuracion.setEnabled(not self.datos_inicializados)
@@ -913,6 +956,47 @@ class VentanaPrincipal(QMainWindow):
             self.accion_restaurar_programa.setEnabled(not self.datos_inicializados)
             self.accion_inicializar_dia.setVisible(True)
             self.accion_salir.setVisible(True)
+            self._establecer_cierre_ventana_habilitado(True)
+
+    def _establecer_cierre_ventana_habilitado(self, habilitado: bool):
+        """
+        Habilita o inhibe visualmente el botón 'X' de la barra de título en Windows
+        sin parpadeo (vía SC_CLOSE) para impedir cerrar el sistema desde un subprograma
+        y obligar a regresar ordenadamente con el botón '← Volver'.
+        """
+        if sys.platform != 'win32':
+            return
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            user32 = ctypes.windll.user32
+            hmenu = user32.GetSystemMenu(hwnd, False)
+            if hmenu:
+                SC_CLOSE = 0xF060
+                MF_BYCOMMAND = 0x00000000
+                MF_ENABLED = 0x00000000
+                MF_GRAYED = 0x00000001
+                estado = MF_ENABLED if habilitado else MF_GRAYED
+                user32.EnableMenuItem(hmenu, SC_CLOSE, MF_BYCOMMAND | estado)
+                user32.DrawMenuBar(hwnd)
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        """
+        Impide cerrar la aplicación desde la 'X' de la ventana cuando hay un subprograma
+        activo (Informes, Procesamiento, Extracción, etc.) para no perder la perspectiva
+        ni omitir el retorno ordenado por '← Volver'.
+        """
+        if self.widget_activo is not None:
+            event.ignore()
+            QMessageBox.information(
+                self,
+                "Retorno controlado",
+                "Use el botón «← Volver» del módulo activo para regresar a la ventana principal antes de cerrar el sistema.",
+            )
+            return
+        super().closeEvent(event)
 
     def paintEvent(self, event):
         # Solo dibujar la marca de agua cuando no hay ningún subprograma cargado

@@ -1643,16 +1643,30 @@ class Procesar_evento(QWidget):
             # Guardar archivo inicial
             escritura_archivo(self.directorios["archivo_procesamiento"], self.procesamiento)
         # ==============================================================
-        # (2) MOSTRAR Y ACTUALIZAR MAPA INMEDIATAMENTE (ANTES DE ACTIVAR HILO)
+        # (2) Si es SISMO y está elegido el método Python (FASTHYPO):
+        #     lanzar directamente el subprograma fases.py maximizado en
+        #     ventana independiente (parent=None) y al cerrar actualizar
+        #     catálogo, mapa GIS, semáforo y abrir estaciones_.
+        # ==============================================================
+        if self.evento_procesar[2] == 'SISMO':
+            usar_python_fasthypo = (
+                hasattr(self.ui, 'rb_metodo_python')
+                and self.ui.rb_metodo_python.isChecked()
+            )
+            if usar_python_fasthypo:
+                self.bandera_virtual = False
+                self._abrir_fases_python(archivo)
+                return
+
+        # ==============================================================
+        # (2B) MOSTRAR Y ACTUALIZAR MAPA INMEDIATAMENTE (ANTES DE ACTIVAR HILO)
         # ==============================================================
         self.en_estaciones = True
         self.invertir_mapa_seniales("mapa")
 
-
         # ==============================================================
-        # (3) Manejo Virtual SOLO si es SISMO
+        # (3) Manejo Virtual SOLO si es SISMO (modo Virtual)
         # ==============================================================
-
         if self.evento_procesar[2] == 'SISMO':
 
             # Verificar conexión del Virtual
@@ -1729,6 +1743,117 @@ class Procesar_evento(QWidget):
 
         self.en_estaciones = True
         self.incrustar_estaciones()
+
+    def _abrir_fases_python(self, evento_sis):
+        """
+        Lanza el subprograma `fases.py` (VentanaPrincipal + FASTHYPO en Python)
+        precargado en el día y evento actual. Al cerrarse, retorna automáticamente
+        a `Procesar_evento`, recarga los resultados en disco y habilita `estaciones_`,
+        Otras Redes, reportes individuales y cierre de turno.
+        """
+        from subprogramas.fases import VentanaPrincipal as FasesVentana
+
+        # Cerrar cualquier instancia previa si quedó abierta
+        ventana_prev = getattr(self, '_ventana_fases', None)
+        if ventana_prev is not None:
+            try:
+                ventana_prev.close()
+            except Exception:
+                pass
+            self._ventana_fases = None
+
+        self._evento_en_fases = evento_sis
+        self.mostrar_submensaje("Procesando en Python (Fases / FASTHYPO)...")
+
+        # Usar parent=None para que QMainWindow abra como ventana independiente a pantalla completa
+        self._ventana_fases = FasesVentana(
+            archivo=self.archivo,
+            directorio_trabajo=self.directorio_trabajo,
+            responsable=self.responsable,
+            periodo=self.horario,
+            parent=None,
+            evento_inicial=evento_sis,
+        )
+        self._ventana_fases.cerrado.connect(self._al_cerrar_fases_python)
+        self._ventana_fases.resize(1280, 760)
+        self._ventana_fases.setWindowState(Qt.WindowMaximized)
+        self._ventana_fases.showMaximized()
+        self._ventana_fases.raise_()
+        self._ventana_fases.activateWindow()
+        QTimer.singleShot(0, self._ventana_fases.showMaximized)
+
+    def _al_cerrar_fases_python(self):
+        """
+        Callback al cerrar el subprograma Fases / FASTHYPO:
+        traslada el último evento activo en Fases a `cmbx_eventos` de Procesamiento,
+        sincroniza el día y cascada, refresca el mapa GIS y los colores del combo,
+        y abre el panel `estaciones_` para revisar aportes HAB, reclasificar (Cambiar a:)
+        o ingresar Otras Redes.
+        """
+        ventana_f = getattr(self, '_ventana_fases', None)
+        evento_activo_fases = ""
+        if ventana_f is not None:
+            evento_activo_fases = str(getattr(ventana_f, 'evento_ultimo_activo', '') or '').strip()
+            if not evento_activo_fases and hasattr(ventana_f, 'combo_sis'):
+                evento_activo_fases = ventana_f.combo_sis.currentText().strip()
+        self._ventana_fases = None
+        evento_prev = evento_activo_fases or getattr(self, '_evento_en_fases', '') or self.ui.cmbx_eventos.currentText()
+
+        try:
+            # 1) Recargar matriz diaria desde disco
+            if os.path.exists(self.directorios.get('archivo_csv', '')):
+                self.eventos = lectura_archivo(self.directorios['archivo_csv']) or self.eventos
+
+            # 2) Sincronizar archivos oficiales del día (_cat, _rep, _res, .xml) y cascada
+            self.sincronizar_archivos_dia_y_periodos()
+
+            # 3) Actualizar historial de intentos de localización (_proc.csv) si existe .rsa en host
+            if evento_prev and hasattr(self, 'procesamiento'):
+                try:
+                    self.procesamiento = guardar_intento(
+                        evento_prev,
+                        self.directorio_trabajo,
+                        '',
+                        self.procesamiento,
+                    )
+                except Exception:
+                    pass
+
+            # 4) Refrescar lista y trasladar exactamente el último evento activo en Fases al combo principal
+            tipo_actual = self.ui.cmbx_t_evento.currentText()
+            self.cargar_combo_eventos(tipo_actual)
+            if evento_prev:
+                idx_ev = self.ui.cmbx_eventos.findText(evento_prev)
+                if idx_ev == -1:
+                    ev_norm = Path(evento_prev).stem.replace('_', '')
+                    if len(ev_norm) == 12 and ev_norm.isdigit():
+                        ev_norm = '20' + ev_norm
+                    for k_c in range(self.ui.cmbx_eventos.count()):
+                        c_txt = self.ui.cmbx_eventos.itemText(k_c)
+                        c_norm = Path(c_txt).stem.replace('_', '')
+                        if len(c_norm) == 12 and c_norm.isdigit():
+                            c_norm = '20' + c_norm
+                        if c_norm == ev_norm:
+                            idx_ev = k_c
+                            break
+                if idx_ev != -1:
+                    self.ui.cmbx_eventos.setCurrentIndex(idx_ev)
+                    try:
+                        self.preparar_evento(self.ui.cmbx_eventos.currentText())
+                    except Exception:
+                        pass
+            self.actualizar_estilo_combo_actual()
+
+            # 5) Refrescar mapa GIS y abrir estaciones_ para ajustar aportes HAB / filtros
+            self.en_estaciones = True
+            self.invertir_mapa_seniales("mapa")
+            self.incrustar_estaciones()
+            self.mostrar_submensaje("Fases/FASTHYPO finalizado. Revise aportes, Cambiar a, Otras Redes o reportes.")
+        except Exception as e_ret:
+            print(f"Aviso al retornar de Fases/FASTHYPO: {e_ret}")
+        finally:
+            self.raise_()
+            self.activateWindow()
 
 
     # ==========================================================
@@ -2002,6 +2127,17 @@ class Procesar_evento(QWidget):
                 os.remove(cat_tmp)
             except Exception:
                 pass
+        ventana_fases = getattr(self, '_ventana_fases', None)
+        if ventana_fases is not None:
+            try:
+                ventana_fases.cerrado.disconnect(self._al_cerrar_fases_python)
+            except Exception:
+                pass
+            try:
+                ventana_fases.close()
+            except Exception:
+                pass
+            self._ventana_fases = None
         self.detener_monitor_virtual()
         self.limpiar_panel_central()
         self.limpiar_estado()

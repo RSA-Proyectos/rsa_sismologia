@@ -752,6 +752,8 @@ class DialogoLocalizarFastHypo(QDialog):
             | Qt.WindowCloseButtonHint
         )
         self.resize(1360, 780)
+        # Módulo profundo (nivel 3): deshabilitar la X de la ventana para volver siempre por '← Volver'
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowCloseButtonHint)
         self.setWindowState(Qt.WindowMaximized)
 
         self.evento_p = evento_p
@@ -897,7 +899,7 @@ class DialogoLocalizarFastHypo(QDialog):
         self.btn_localizar.clicked.connect(self.ejecutar_localizacion)
         grid.addWidget(self.btn_localizar, 1, 4)
 
-        self.btn_multi_prof = QPushButton("🔄 Correr 4 Profundidades\n(60 / 49.9 / 33 / 14.9)")
+        self.btn_multi_prof = QPushButton("🔄 Correr 5 Profundidades\n(60 / 49.9 / 33 / 14.9 / 5)")
         self.btn_multi_prof.setMinimumHeight(40)
         self.btn_multi_prof.setStyleSheet("background-color: #7c3aed; color: white; font-weight: bold;")
         self.btn_multi_prof.clicked.connect(self.ejecutar_multi_profundidad)
@@ -906,7 +908,7 @@ class DialogoLocalizarFastHypo(QDialog):
         # Botones rápidos de profundidades semilla RSA
         fila_presets = QHBoxLayout()
         fila_presets.addWidget(QLabel("Semillas rápidas de profundidad RSA (km):"))
-        for z_preset in (60.0, 49.9, 33.0, 14.9):
+        for z_preset in (60.0, 49.9, 33.0, 14.9, 5.0):
             btn_z = QPushButton(f"{z_preset:g} km")
             btn_z.setMaximumHeight(26)
             btn_z.clicked.connect(lambda _=False, zp=z_preset: self._aplicar_semilla_y_correr(zp))
@@ -929,13 +931,13 @@ class DialogoLocalizarFastHypo(QDialog):
         self.tabla_corridas.setSelectionBehavior(QTableWidget.SelectRows)
         self.tabla_corridas.setSelectionMode(QTableWidget.SingleSelection)
         self.tabla_corridas.setAlternatingRowColors(True)
-        self.tabla_corridas.setMaximumHeight(135)
+        self.tabla_corridas.setMaximumHeight(160)
         self.tabla_corridas.currentCellChanged.connect(self._al_seleccionar_corrida)
         lay_comp.addWidget(self.tabla_corridas)
         lay.addWidget(grp_comp)
 
         # Resumen numérico (estilo Form2 de VB5)
-        self.lbl_resumen = QLabel("Presione 'Correr 4 Profundidades' o 'Localizar (1 Semilla)' para calcular el hipocentro.")
+        self.lbl_resumen = QLabel("Presione 'Correr 5 Profundidades' o 'Localizar (1 Semilla)' para calcular el hipocentro.")
         self.lbl_resumen.setStyleSheet(
             "font-family: Consolas, monospace; font-size: 12px; font-weight: bold; "
             "background-color: #0f172a; color: #38bdf8; padding: 8px 10px; border-radius: 6px;"
@@ -1011,8 +1013,9 @@ class DialogoLocalizarFastHypo(QDialog):
         fila_bot.addWidget(self.btn_guardar)
 
         fila_bot.addStretch(1)
-        btn_cerrar = QPushButton("Cerrar")
-        btn_cerrar.setMinimumHeight(34)
+        btn_cerrar = QPushButton("← Volver")
+        btn_cerrar.setMinimumSize(110, 34)
+        btn_cerrar.setStyleSheet("font-weight: bold; padding: 4px 14px;")
         btn_cerrar.clicked.connect(self.reject)
         fila_bot.addWidget(btn_cerrar)
         lay_principal.addLayout(fila_bot)
@@ -1330,7 +1333,7 @@ class DialogoLocalizarFastHypo(QDialog):
             QMessageBox.critical(self, "Error en Localización", f"No se pudo localizar el evento:\n{e}")
 
     def ejecutar_multi_profundidad(self) -> None:
-        """Ejecuta las 4 profundidades semilla estándar RSA (60, 49.9, 33, 14.9 km) y presenta el comparativo."""
+        """Ejecuta las 5 profundidades semilla estándar RSA (60, 49.9, 33, 14.9, 5 km) y presenta el comparativo."""
         mod = self.cmb_modelo.currentText().strip().lower()
         if mod not in self.modelos:
             QMessageBox.warning(self, "Modelo", f"Modelo '{mod}' no disponible.")
@@ -1341,7 +1344,7 @@ class DialogoLocalizarFastHypo(QDialog):
         modo_txt = "Fija" if fija else "Libre"
         errores = []
 
-        for z_sem in (60.0, 49.9, 33.0, 14.9):
+        for z_sem in (60.0, 49.9, 33.0, 14.9, 5.0):
             try:
                 res = self._correr_una_semilla(z_sem, fija)
                 self.corridas_disponibles.append((z_sem, modo_txt, res))

@@ -1152,7 +1152,7 @@
               </font>
              </property>
              <property name="text">
-              <string>Salir</string>
+              <string>← Volver</string>
              </property>
             </widget>
            </item>

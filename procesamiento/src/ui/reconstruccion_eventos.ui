@@ -278,8 +278,11 @@
           <height>34</height>
          </size>
         </property>
+        <property name="styleSheet">
+         <string notr="true">font-weight: bold; padding: 4px 14px;</string>
+        </property>
         <property name="text">
-         <string>Salir</string>
+         <string>← Volver</string>
         </property>
        </widget>
       </item>

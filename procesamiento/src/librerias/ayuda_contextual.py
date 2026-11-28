@@ -262,15 +262,10 @@ def _construir_ayuda_nivel_menu(ventana_principal) -> dict:
             <tr>
                 <td><b>3º</b></td>
                 <td><b>Procesamiento</b></td>
-                <td>Permite seleccionar cada evento del día, configurar aportes de estaciones y filtros, monitorear en vivo la localización con <code>ProcesoV2</code> (Virtual), ver el epicentro en el mapa o las señales paginadas y, al salir, revisar el <b>PDF de control del turno (Modo M1)</b>.</td>
+                <td>Módulo unificado de procesamiento sísmico: permite elegir el método de localización entre <b>Python (Fases / FASTHYPO, con 5 profundidades: 60 / 49.9 / 33 / 14.9 / 5 km)</b> o <b>Máquina Virtual (ProcesoV2)</b>, configurar aportes de estaciones (<code>HAB</code>) y filtros, ingresar información de <b>Otras Redes (IGEPN / USGS)</b>, emitir reportes individuales/acelerogramas y, al salir, revisar el <b>PDF de control del turno (Modo M1)</b>.</td>
             </tr>
             <tr>
                 <td><b>4º</b></td>
-                <td><b>Fases</b></td>
-                <td>Visualizador y picador interactivo de fases <b>P</b>, <b>S</b> y <b>Coda</b> para los eventos tipo <code>SISMO</code>, con sincronización directa de archivos <code>.fas</code> (HYPO71) y <code>.json</code>.</td>
-            </tr>
-            <tr>
-                <td><b>5º</b></td>
                 <td><b>Reextracción</b></td>
                 <td>Ejecuta inmediatamente la reextracción por lotes (<code>extraer_dia</code>) de los eventos del día sin abrir ventana adicional.</td>
             </tr>
@@ -692,6 +687,12 @@ def _ayuda_subprograma_procesamiento(widget) -> dict:
         hasta que usted escoja un evento (actualmente: <code>{evento_sel or 'Ninguno'}</code>, tipo <code>{tipo_sel}</code>,
         turno <code>{horario_ev}</code>, responsable <code>{resp_ev}</code>) y pulse el botón <b><code>Procesar</code></b>.
     </div>
+
+    <h3>Selección del Método de Procesamiento (<code>MÉTODO DE PROCESAMIENTO</code>):</h3>
+    <ul>
+        <li><b><code>Python (FASTHYPO)</code> <i>(Recomendado por defecto)</i>:</b> Lanza el subprograma de <b>Fases y FASTHYPO en Python</b> (con 5 profundidades semilla: <code>60 / 49.9 / 33 / 14.9 / 5 km</code>) directamente sobre el evento seleccionado. Al cerrarlo, regresa automáticamente a <b>Procesamiento</b> con el catálogo, el semáforo y el mapa GIS actualizados, abriendo el panel de estaciones para revisar aportes (<code>HAB</code>), ingresar <b>Otras Redes</b>, emitir reportes y cerrar el turno.</li>
+        <li><b><code>Virtual</code>:</b> Ejecuta el flujo clásico mediante la Máquina Virtual (<code>ProcesoV2</code> / DOS) y monitoreo de archivos.</li>
+    </ul>
 
     <h3>Significado de los colores en la lista desplegable de Eventos (<code>cmbx_eventos</code>):</h3>
     <table>
@@ -1600,6 +1601,61 @@ def _ayuda_subprograma_reconstruccion_eventos(widget) -> dict:
     }
 
 
+def _ayuda_subprograma_respaldo_bd(widget) -> dict:
+    """Ayuda contextual sensible a la pestaña activa de `RespaldoBaseDatos` (`respaldo_base_datos.py`)."""
+    idx_tab = widget.tabs_respaldo.currentIndex() if hasattr(widget, 'tabs_respaldo') else 0
+    nombres_tab = {
+        0: '1. Sincronizar a Carpeta',
+        1: '2. Exportar a ZIP',
+        2: '3. Importar / Descomprimir ZIP',
+    }
+
+    html_carpeta = """
+    <h2>1. Sincronizar a Carpeta (Respaldo Incremental Directo)</h2>
+    <p>Copia archivos desde su directorio de trabajo temporal (por ejemplo Google Drive <code>G:\\Mi unidad\\DIA\\</code>
+    o cualquier subcarpeta de año/mes/día) hacia el repositorio maestro (ej. <code>C:\\DIA\\</code> o disco externo),
+    preservando exactamente toda la estructura de subdirectorios.</p>
+    <ul>
+        <li><b>Regla segura (nunca borra en destino):</b> un archivo solo se copia si <b>no existe en destino</b> o si
+        su fecha de modificación en el origen es <b>más reciente</b> (tolerancia de 2 segundos para compatibilidad entre Google Drive y NTFS).</li>
+        <li><b>Respaldo liviano (recomendado):</b> omite registros continuos de 24 horas (<code>mseed\\registros\\</code>) y archivos <code>.pdf</code>, conservando toda la base operativa (<code>.csv</code>, <code>_aux</code>, <code>_cat</code>, <code>_rep</code>, <code>_res</code>, <code>.xml</code>, <code>dia\\.sis/.fas</code>, <code>fastHypo\\</code>, <code>mseed\\eventos\\</code>, <code>reportes\\</code>, <code>procesamiento\\</code> y Shapefiles GIS).</li>
+        <li><b>Respaldo completo:</b> copia absolutamente todo el contenido del directorio origen.</li>
+        <li><b>Analizar (Vista previa):</b> muestra cuántos archivos son nuevos, cuántos se actualizarán y el volumen en MB/GB antes de copiar un solo byte.</li>
+    </ul>
+    """
+
+    html_exp_zip = """
+    <h2>2. Exportar a ZIP (Respaldo Portable entre Computadoras)</h2>
+    <p>Empaqueta el directorio origen en un archivo <code>.zip</code> estándar con soporte <b>ZIP64</b> (admite archivos mayores a 4 GB), ideal para trasladar respaldos desde una computadora de operación hacia la computadora maestra.</p>
+    <ul>
+        <li>Puede elegir entre <b>ZIP liviano</b> (omite <code>mseed\\registros\\</code> y <code>.pdf</code>) o <b>ZIP completo</b>.</li>
+        <li>Guarda automáticamente un manifiesto interno (<code>rsa_manifiesto_respaldo.json</code>) con la fecha exacta (<code>mtime</code>) de cada archivo para garantizar comparaciones precisas al descomprimir en otra PC.</li>
+        <li>Guarde siempre el archivo <code>.zip</code> fuera de la carpeta origen.</li>
+    </ul>
+    """
+
+    html_imp_zip = """
+    <h2>3. Importar / Descomprimir ZIP en la Computadora de Destino</h2>
+    <p>Descomprime un archivo <code>.zip</code> de respaldo sobre la carpeta maestra de destino (ej. <code>C:\\DIA\\</code>), fusionando la estructura de directorios sin perder información previa.</p>
+    <ul>
+        <li><b>Política incremental por defecto:</b> extrae únicamente los archivos que <b>no existen</b> en destino o que son <b>más recientes</b> que los del destino (usando las fechas exactas del manifiesto interno) y restaura sus fechas originales.</li>
+        <li><b>Forzar reemplazo:</b> casilla opcional (desmarcada por defecto) si desea sobrescribir todos los archivos sin comparar fechas.</li>
+        <li>Incluye protección de seguridad contra rutas inválidas (<i>Zip Slip</i>) y ejecución en segundo plano con botón <b>Cancelar</b>.</li>
+    </ul>
+    """
+
+    return {
+        'ruta_ubicacion': 'Configuración  ▸  Respaldo de Base de Datos (DIA — Carpeta / ZIP)',
+        'subtitulo_estado': f"Pestaña activa: {nombres_tab.get(idx_tab, '1. Sincronizar a Carpeta')}",
+        'indice_activo': idx_tab if 0 <= idx_tab <= 2 else 0,
+        'pestanas': [
+            ('1. Sincronizar a Carpeta', html_carpeta),
+            ('2. Exportar a ZIP', html_exp_zip),
+            ('3. Importar desde ZIP', html_imp_zip),
+        ],
+    }
+
+
 def construir_contexto_vivo(ventana_principal) -> dict:
     """
     Inspecciona el árbol actual de `ventana_principal` (`programa_integrado.py`):
@@ -1630,6 +1686,8 @@ def construir_contexto_vivo(ventana_principal) -> dict:
         return _ayuda_subprograma_otras_redes(widget_activo)
     if nombre_clase == 'Reconstruccion_eventos':
         return _ayuda_subprograma_reconstruccion_eventos(widget_activo)
+    if nombre_clase == 'RespaldoBaseDatos':
+        return _ayuda_subprograma_respaldo_bd(widget_activo)
     if nombre_clase == 'Reporte_diario':
         return _ayuda_subprograma_reporte_diario(widget_activo)
     if nombre_clase == 'Reporte_periodo':
